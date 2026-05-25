@@ -22,9 +22,9 @@ export async function onRequestPost(context) {
     // 1. 转发分片到 Telegram
     const tgFormData = new FormData();
     tgFormData.append('chat_id', TELEGRAM_CHAT_ID);
-    tgFormData.append('document', chunkFile, `${fileName}.part${chunkIndex}`);
+    tgFormData.append('video', chunkFile, `${fileName}.part${chunkIndex}`);
 
-    const tgRes = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument`, {
+    const tgRes = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendVideo`, {
       method: 'POST',
       body: tgFormData
     });
@@ -34,7 +34,7 @@ export async function onRequestPost(context) {
       return new Response(JSON.stringify({ error: 'TG上传失败', details: tgData }), { status: 500 });
     }
 
-    const tgFileId = tgData.result.document.file_id;
+    const tgFileId = tgData.result.video.file_id;
 
     // 2. 写入 KV 账本
     const metaKey = `file:${fileUid}`;
