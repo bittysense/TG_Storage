@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TG Pages 视频云盘</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen p-4 md:p-8">
+    <div class="max-w-4xl mx-auto space-y-8">
+        
+        <div class="border-b border-gray-800 pb-4">
+            <h1 class="text-2xl md:text-3xl font-bold text-emerald-400">Telegram Pages 视频存储系统</h1>
+            <p class="text-gray-400 text-sm mt-1">纯 Pages 架构，支持无限制大视频 10MB 切片上传与随意快进播放。</p>
+        </div>
+
+        <div class="bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700">
+            <h2 class="text-lg font-semibold mb-4 text-gray-200">视频切片上传 (每片10MB)</h2>
+            <div class="space-y-4">
+                <input type="file" id="videoInput" accept="video/*" class="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-emerald-600 file:text-white hover:file:bg-emerald-700 cursor-pointer" />
+                <button id="uploadBtn" onclick="startUpload()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md transition duration-200">开始分片上传</button>
+                
+                <div id="progressContainer" class="hidden space-y-2">
+                    <div class="w-full bg-gray-700 rounded-full h-4 overflow-hidden">
+                        <div id="progressBar" class="bg-emerald-500 h-full w-0 transition-all duration-300"></div>
+                    </div>
+                    <p id="progressStatus" class="text-sm text-gray-400 text-center">正在准备...</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700">
+            <h2 class="text-lg font-semibold mb-4 text-gray-200">视频直链播放</h2>
+            <div class="flex gap-2 mb-4">
+                <input type="text" id="fileUidInput" placeholder="请输入视频文件的 UID..." class="flex-1 bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500" />
+                <button onclick="loadVideo()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 text-sm font-medium rounded-md whitespace-nowrap">加载流媒体</button>
+            </div>
+            
+            <div class="mb-4 hidden" id="linkContainer">
+                <span class="text-xs text-gray-400 block mb-1">视频外部直链：</span>
+                <div class="flex items-center gap-2 bg-gray-900 p-2 rounded border border-gray-700">
+                    <a id="directLink" href="#" target="_blank" class="text-sm text-cyan-400 break-all underline flex-1"></a>
+                    <button onclick="navigator.clipboard.writeText(document.getElementById('directLink').innerText); alert('复制成功！')" class="text-xs bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded">复制</button>
+                </div>
+            </div>
+
+            <div class="aspect-video bg-black rounded-lg overflow-hidden border border-gray-900 flex items-center justify-center relative">
+                <video id="videoPlayer" controls class="w-full h-full hidden" preload="metadata" playsinline></video>
+                <div id="playerPlaceholder" class="text-gray-500 text-sm">暂无加载的视频</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const CHUNK_SIZE = 10 * 1024 * 1024; // 10MB
+
+        async function startUpload() {
+            const fileInput = document.getElementById('videoInput');
+            if (!fileInput.files.length) return alert('请先选择视频文件！');
+
+            const file = fileInput.files[0];
+            const fileUid = 'vid_' + Math.random().toString(36).substring(2, 15);
+            const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+            
+            const pContainer = document.getElementById('progressContainer');
+            const pBar = document.getElementById('progressBar');
+            const pStatus = document.getElementById('progressStatus');
+            
+            pContainer.classList.remove('hidden');
+            document.getElementById('uploadBtn').disabled = true;
+
+            for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+                const start = chunkIndex * CHUNK_SIZE;
+                const end = Math.min(start + CHUNK_SIZE, file.size);
+                const chunk = file.slice(start, end);
+
+                pStatus.innerText = `正在上传分片 [ \${chunkIndex + 1} / \${totalChunks} ] ...`;
+                
+                const formData = new FormData();
+                formData.append('uid', fileUid);
+                formData.append('chunkIndex', chunkIndex);
+                formData.append('totalChunks', totalChunks);
+                formData.append('fileName', file.name);
+                formData.append('fileSize', file.size);
+                formData.append('chunk', chunk);
+
+                try {
+                    const response = await fetch('/api/upload', { method: 'POST', body: formData });
+                    if (!response.ok) throw new Error('分片上传失败');
+                    
+                    const percentComplete = Math.round(((chunkIndex + 1) / totalChunks) * 100);
+                    pBar.style.width = percentComplete + '%';
+                } catch (err) {
+                    alert('上传中断: ' + err.message);
+                    document.getElementById('uploadBtn').disabled = false;
+                    return;
+                }
+            }
+
+            pStatus.innerHTML = `🎉 上传成功! UID: <strong class="text-white select-all">\${fileUid}</strong>`;
+            document.getElementById('fileUidInput').value = fileUid;
+            document.getElementById('uploadBtn').disabled = false;
+        }
+
+        function loadVideo() {
+            const uid = document.getElementById('fileUidInput').value.trim();
+            if (!uid) return alert('请输入有效的视频 UID。');
+
+            // 请求 Pages 自己的动态函数路由
+            const streamUrl = window.location.origin + '/api/stream/' + uid;
+            
+            const player = document.getElementById('videoPlayer');
+            const placeholder = document.getElementById('playerPlaceholder');
+            const linkContainer = document.getElementById('linkContainer');
+            const directLink = document.getElementById('directLink');
+
+            placeholder.classList.add('hidden');
+            player.classList.remove('hidden');
+            
+            player.src = streamUrl;
+            linkContainer.classList.remove('hidden');
+            directLink.href = streamUrl;
+            directLink.innerText = streamUrl;
+            
+            player.load();
+        }
+    </script>
+</body>
+</html>
