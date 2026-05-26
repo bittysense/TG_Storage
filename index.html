@@ -273,6 +273,93 @@
             }
             document.getElementById('uploadBtn').disabled = false;
         }
+
+        // 🌟 终极防错版：全自动跨卷全量导出，并智能修复老视频字段
+        async function exportUidLog() {
+            const exportBtn = document.querySelector('button[onclick="exportUidLog()"]');
+            if (!exportBtn) return;
+            const originalText = exportBtn.innerHTML;
+            
+            try {
+                exportBtn.disabled = true;
+                exportBtn.innerHTML = `<svg class="w-3.5 h-3.5 animate-spin inline mr-1" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> 正在跨卷同步...`;
+
+                // 1. 请求第一页列表，拿到无指针分卷总册数
+                const firstRes = await fetch('/api/list?page=1');
+                if (!firstRes.ok) throw new Error('读取云端索引失败');
+                
+                // 兼容处理：支持后端直接返回数组（老版方案一）或返回带分页的对象
+                const firstResult = await firstRes.json();
+                let allMergedVideos = [];
+                let totalLedgers = 1;
+
+                if (Array.isArray(firstResult)) {
+                    // 说明后端使用的是【方案一：后端全自动合并版】
+                    allMergedVideos = firstResult;
+                } else {
+                    // 说明后端使用的是【分卷带 page 属性版】
+                    allMergedVideos = firstResult.data || [];
+                    totalLedgers = firstResult.totalPages || 1;
+
+                    // 🚀 如果总册数大于 1，并发轮询把剩下几册全部抽干
+                    if (totalLedgers > 1) {
+                        const fetchPromises = [];
+                        for (let p = 2; p <= totalLedgers; p++) {
+                            fetchPromises.push(fetch(`/api/list?page=${p}`).then(res => res.json()));
+                        }
+                        const remainingPages = await Promise.all(fetchPromises);
+                        remainingPages.forEach(pageResult => {
+                            if (pageResult.data) {
+                                allMergedVideos = allMergedVideos.concat(pageResult.data);
+                            }
+                        });
+                    }
+                }
+
+                if (allMergedVideos.length === 0) {
+                    alert("云端账本空空如也，没有发现可导出的资产！");
+                    return;
+                }
+
+                // 2. 🌟 智能清洗与标准化数据（核心防错修改点）
+                const processedData = allMergedVideos.map((item, index) => {
+                    // 🚨 【双重保险】如果老数据连总账本里都没塞进 uid，则尝试从外部其他可能的地方兜底，或者直接标记异常，防止抛错卡死
+                    const safeUid = item.uid || item.id || `unknown_vid_${index}`;
+                    
+                    return {
+                        uid: safeUid,
+                        name: item.name || '未命名视频或历史资产',
+                        size_bytes: item.size || 0,
+                        size_mb: item.size ? parseFloat((item.size / 1024 / 1024).toFixed(2)) : 0,
+                        // 拼接标准的流媒体在线播放地址与原始串流地址
+                        stream_url: `${window.location.origin}/api/stream/${safeUid}`,
+                        raw_stream_url: `${window.location.origin}/api/stream/${safeUid}?stream=true`,
+                        uploaded_at: item.time || new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
+                    };
+                });
+
+                // 3. 转化为标准的 JSON 文本文件并触发浏览器下载
+                const blob = new Blob([JSON.stringify(processedData, null, 4)], { type: "application/json;charset=utf-8" });
+                const downloadUrl = URL.createObjectURL(blob);
+                const aLink = document.createElement("a");
+                const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+                
+                aLink.href = downloadUrl;
+                aLink.download = `TG_Storage_Backup_${dateStr}.json`;
+                document.body.appendChild(aLink);
+                aLink.click();
+                
+                // 清理现场
+                document.body.removeChild(aLink);
+                URL.revokeObjectURL(downloadUrl);
+
+            } catch (err) {
+                alert(`资产备份失败: ${err.message}`);
+            } finally {
+                exportBtn.disabled = false;
+                exportBtn.innerHTML = originalText;
+            }
+        }
     </script>
 </body>
 </html>
