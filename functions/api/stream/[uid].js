@@ -48,7 +48,7 @@ export async function onRequestGet(context) {
     // 🌟 2. 判断：如果用户指定了 type=audio，或者文件名后缀本来就是 mp3/m4a
     if (playType === 'audio') {
         // 渲染成你截图里那种网易云质感的精美音频卡片
-        return new Response(getMusicCardHTML(meta.name, rawStreamUrl, url), {
+        return new Response(getMusicCardHTML(meta.name, url), {
             headers: { 'Content-Type': 'text/html;charset=UTF-8' }
         });
     } else {
@@ -166,7 +166,7 @@ function getBeautifulPlayerHTML(videoName, rawStreamUrl) {
   `;
 }
 
-function getMusicCardHTML(audioName, rawStreamUrl, url) {
+function getMusicCardHTML(audioName, url) {
   return `
   <!DOCTYPE html>
   <html>
@@ -203,7 +203,7 @@ function getMusicCardHTML(audioName, rawStreamUrl, url) {
           <div class="title-text">${videoName}</div>
           <svg class="brand-icon" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9v-2h2v2zm0-4H9V7h2v5z"/></svg>
         </div>
-        <audio id="audio-player" src="${rawStreamUrl}"></audio>
+        <audio id="audio-player" src="${url}"></audio>
       </div>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/plyr@3.7.8/dist/plyr.polyfilled.min.js"></script>
