@@ -172,12 +172,10 @@ function getMusicCardHTML(audioName, rawStreamUrl, url) {
       body { margin: 0; padding: 0; background: transparent; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
       .music-card { width: 100%; max-width: 580px; height: 130px; background: rgba(35, 35, 35, 0.92); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-radius: 12px; display: flex; align-items: center; box-shadow: 0 8px 32px rgba(0,0,0,0.35); overflow: hidden; border: 1px solid rgba(255,255,255,0.08); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; box-sizing: border-box; }
       
-      /* 左侧封面区域，预设一张优雅的暗色音乐胶片背景 */
       .cover-area { width: 130px; height: 130px; position: relative; flex-shrink: 0; background: linear-gradient(135deg, #282828 0%, #121212 100%); display: flex; align-items: center; justify-content: center; }
       .cover-img { width: 100%; height: 100%; object-fit: cover; filter: brightness(0.65); transition: all 0.5s ease; opacity: 0; position: absolute; top: 0; left: 0; }
-      .cover-img.loaded { opacity: 1; } /* 网易云大图加载完后优雅淡入 */
+      .cover-img.loaded { opacity: 1; }
       
-      /* 兜底默认音符图标 */
       .default-note { position: absolute; width: 34px; height: 34px; fill: rgba(255,255,255,0.18); transition: all 0.3s ease; }
       .playing .default-note { fill: rgba(59, 130, 246, 0.4); transform: rotate(360deg); transition: all 12px linear infinite; }
       
@@ -189,9 +187,37 @@ function getMusicCardHTML(audioName, rawStreamUrl, url) {
       .playing .cover-img { filter: brightness(0.75); }
       
       .info-area { flex-grow: 1; padding: 16px 20px; display: flex; flex-direction: column; justify-content: space-between; height: 100%; box-sizing: border-box; overflow: hidden; }
-      .title-row { display: flex; align-items: center; justify-content: space-between; width: 100%; }
-      .title-text { color: #f5f5f7; font-size: 16px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 320px; }
-      .brand-icon { width: 20px; height: 20px; fill: #ea4335; flex-shrink: 0; margin-left: 10px; }
+      
+      /* 🌟 滚动歌名核心容器：限制最大宽度，隐藏溢出部分 */
+      .title-row { display: flex; align-items: center; justify-content: space-between; width: 100%; overflow: hidden; }
+      .title-container { flex-grow: 1; overflow: hidden; position: relative; height: 24px; margin-right: 10px; }
+      
+      /* 🌟 滚动的文字实体：默认靠左静止 */
+      .title-text { 
+        color: #f5f5f7; 
+        font-size: 16px; 
+        font-weight: 500; 
+        white-space: nowrap; 
+        position: absolute;
+        left: 0;
+        top: 0;
+        display: inline-block;
+      }
+      
+      /* 🌟 跑马灯动画效果（字数多时通过 JS 激活该 Class） */
+      .marquee {
+        animation: scroll-title 8s linear infinite;
+        padding-right: 50px; /* 留出空白，防止循环首尾相撞 */
+      }
+      
+      @keyframes scroll-title {
+        0% { transform: translate3d(0, 0, 0); }
+        10% { transform: translate3d(0, 0, 0); } /* 开头稍微停顿下，方便阅读 */
+        90% { transform: translate3d(-50%, 0, 0); } /* 滚动到一半（因为双份拼接） */
+        100% { transform: translate3d(-50%, 0, 0); }
+      }
+      
+      .brand-icon { width: 20px; height: 20px; fill: #ea4335; flex-shrink: 0; }
       
       .plyr--audio .plyr__controls { background: transparent !important; padding: 0 !important; color: #b3b3b3 !important; }
       .plyr__controls .plyr__time { font-size: 13px; font-variant-numeric: tabular-nums; }
@@ -208,7 +234,9 @@ function getMusicCardHTML(audioName, rawStreamUrl, url) {
       </div>
       <div class="info-area">
         <div class="title-row">
-          <div class="title-text" id="display-title">${audioName}</div>
+          <div class="title-container" id="t-container">
+            <span class="title-text" id="display-title">${audioName}</span>
+          </div>
           <svg class="brand-icon" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9v-2h2v2zm0-4H9V7h2v5z"/></svg>
         </div>
         <audio id="audio-player" src="${rawStreamUrl}"></audio>
@@ -223,37 +251,43 @@ function getMusicCardHTML(audioName, rawStreamUrl, url) {
       player.on('play', () => wrapper.classList.add('playing'));
       player.on('pause', () => wrapper.classList.remove('playing'));
 
-      // 🌟 核心探针：利用网易云音乐公开 API 自动模糊搜索封面
       window.addEventListener('DOMContentLoaded', () => {
-        // 1. 清洗文件名：去掉可能存在的后缀，只拿纯歌名去搜
         const rawTitle = "${audioName}";
         const cleanQuery = rawTitle.replace(/\\.[^/.]+$/, "").trim();
         
-        // 2. 调用网易云官方免签搜索 API（限制只返回 1 条最精准匹配结果）
-        const searchUrl = \`https://music.163.com/api/search/get/web?s=\${encodeURIComponent(cleanQuery)}&type=1&limit=1\`;
+        // 🌟 1. 智能检测文字宽度是否超出了容器
+        const container = document.getElementById('t-container');
+        const titleEl = document.getElementById('display-title');
         
+        if (titleEl.offsetWidth > container.offsetWidth) {
+          // 如果字数太多放不下，把文字复制一份拼在后面，并开启动画
+          titleEl.innerHTML = cleanQuery + "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;" + cleanQuery;
+          titleEl.classList.add('marquee');
+          // 根据歌名长度动态计算滚动时间，长歌名滚慢点，短歌名滚快点
+          titleEl.style.animationDuration = Math.max(6, Math.floor(cleanQuery.length * 0.4)) + 's';
+        } else {
+          // 放得下就只显示清洗后的歌名，静止不动
+          titleEl.innerHTML = cleanQuery;
+        }
+
+        // 2. 正常请求网易云封面
+        const searchUrl = \`https://music.163.com/api/search/get/web?s=\${encodeURIComponent(cleanQuery)}&type=1&limit=1\`;
         fetch(searchUrl)
           .then(res => res.json())
           .then(data => {
             if (data && data.result && data.result.songs && data.result.songs.length > 0) {
               const targetSong = data.result.songs[0];
-              // 3. 提取对应专辑的精美大图链接
               if (targetSong.album && targetSong.album.picUrl) {
                 const imgElement = document.getElementById('netease-cover');
-                // 强制将图片请求切为 https，且带上网易图片缩略图裁剪参数提升加载速度
                 const hdCoverUrl = targetSong.album.picUrl.replace("http://", "https://") + "?param=130y130";
-                
                 imgElement.src = hdCoverUrl;
                 imgElement.onload = () => {
-                  imgElement.classList.add('loaded'); // 优雅淡入大图
+                  imgElement.classList.add('loaded');
                   document.getElementById('fallback-icon').style.display = 'none';
                 };
               }
             }
-          })
-          .catch(err => {
-            console.log('网易云封面检索未命中，自动启用优雅磨砂默认兜底。', err);
-          });
+          }).catch(err => console.log('网易云封面未命中:', err));
       });
     </script>
   </body>
