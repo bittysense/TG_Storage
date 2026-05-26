@@ -10,19 +10,40 @@ export async function onRequestPost(context) {
       return new Response(JSON.stringify({ success: false, error: '结算参数不完整' }), { status: 400 });
     }
 
-    // 构建标准元数据资产账本
+    const uploadTime = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+
+    // 1. 组装并写入该视频的【详细大账本】（供播放器使用）
     const metaData = {
       uid: uid,
       name: name,
       size: size,
-      chunks: chunks, // 按前端严格排序好的 file_id 数组
-      time: new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
+      chunks: chunks,
+      time: uploadTime
     };
-
-    // 🌟 全程唯一的一次 KV 写入操作，定鼎乾坤！
     await kv.put(`file:${uid}`, JSON.stringify(metaData));
 
-    return new Response(JSON.stringify({ success: true, meta: metaData }), {
+    // 2. 🌟 核心优化：动态更新【全局轻量总账本】（供 list.js 使用）
+    // 异步锁/原子性在低频个人盘中可以通过先读后写简单实现
+    let globalList = await kv.get('system:video_list', { type: 'json' }) || [];
+    
+    // 过滤掉同名旧 UID 防止重复，然后将新视频的精简元数据推入头部（最新上传在最前）
+    globalList = globalList.filter(item => item.uid !== uid);
+    globalList.unshift({
+      uid: uid,
+      name: name,
+      size: size,
+      time: uploadTime
+    });
+
+    // 严格限制全局总账本的大小（例如只保留最近上传的 500 部视频，防止单次请求过大）
+    if (globalList.length > 500) {
+      globalList = globalList.slice(0, 500);
+    }
+
+    // 写入总账本
+    await kv.put('system:video_list', JSON.stringify(globalList));
+
+    return new Response(JSON.stringify({ success: true }), {
       headers: { 'Content-Type': 'application/json' }
     });
 
