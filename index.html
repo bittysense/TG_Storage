@@ -45,7 +45,7 @@
             </div>
 
             <div class="aspect-video bg-black rounded-lg overflow-hidden border border-gray-900 flex items-center justify-center relative">
-                <video id="videoPlayer" controls class="w-full h-full hidden" preload="metadata" playsinline></video>
+                <iframe id="videoIframe" src="about:blank" class="w-full h-full border-0 hidden" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
                 <div id="playerPlaceholder" class="text-gray-500 text-sm">暂无加载的视频</div>
             </div>
         </div>
@@ -166,25 +166,34 @@
 
         function loadVideo() {
             const uid = document.getElementById('fileUidInput').value.trim();
-            if (!uid) return alert('请输入有效的视频 UID。');
+            if (!uid) return alert('请输入合规的分布式存储 UID。');
 
-            // 请求 Pages 自己的动态函数路由
+            // 1. 拼接得到你的无边框美化直链地址
             const streamUrl = window.location.origin + '/api/stream/' + uid;
             
-            const player = document.getElementById('videoPlayer');
             const placeholder = document.getElementById('playerPlaceholder');
+            const videoIframe = document.getElementById('videoIframe');
             const linkContainer = document.getElementById('linkContainer');
             const directLink = document.getElementById('directLink');
+            const titleSpan = document.getElementById('currentVideoTitle');
 
-            placeholder.classList.add('hidden');
-            player.classList.remove('hidden');
+            // 2. 隐藏占位符，显示 iframe
+            placeholder.classList.add('opacity-0', 'pointer-events-none');
+            videoIframe.classList.remove('hidden');
             
-            player.src = streamUrl;
-            linkContainer.classList.remove('hidden');
-            directLink.href = streamUrl;
-            directLink.innerText = streamUrl;
+            // 3. 🌟 将 iframe 的 src 指向直链，让它在内部自动完成美化与渲染
+            videoIframe.src = streamUrl;
+
+            // 4. 渲染下方辅助面板属性
+            if (linkContainer) {
+                linkContainer.classList.remove('hidden');
+                directLink.href = streamUrl;
+                directLink.innerText = streamUrl;
+            }
             
-            player.load();
+            if (titleSpan.innerText === "暂无播放任务") {
+                titleSpan.innerText = "正在通过独立沙盒流式解析: " + uid;
+            }
         }
     </script>
 </body>
