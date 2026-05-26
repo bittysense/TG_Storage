@@ -1,5 +1,6 @@
 export async function onRequestPost(context) {
   const TELEGRAM_BOT_TOKEN = context.env.TELEGRAM_BOT_TOKEN;
+  const TELEGRAM_CHAT_ID = context.env.TELEGRAM_CHAT_ID;
   if (!TELEGRAM_BOT_TOKEN) return new Response(JSON.stringify({ success: false, error: '缺少配置' }), { status: 500 });
 
   try {
@@ -14,7 +15,7 @@ export async function onRequestPost(context) {
     // 使用 Blob 确保 Telegram 正确识别为文档流，防止大文件被压缩
     const fileBlob = new Blob([chunk], { type: 'application/octet-stream' });
     tgFormData.append('document', fileBlob, fileName);
-    tgFormData.append('chat_id', '@你的频道或你的ChatID'); // 👈 记得换成你自己的公开频道或私聊ID
+    tgFormData.append('chat_id', TELEGRAM_CHAT_ID); // 👈 记得换成你自己的公开频道或私聊ID
 
     // 2. 扔给 TG 换取 file_id
     const tgRes = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendVideo`, {
