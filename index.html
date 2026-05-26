@@ -3,48 +3,40 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TG Pages 视频云盘</title>
+    <title>TG 视频流媒体控制台</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://npm.elemecdn.com/lxgw-wenkai-webfont@1.1.0/lxgwwenkai-regular.css" />
+    
+    <style>
+        body {
+            font-family: 'LXGW WenKai', sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+        }
+    </style>
 </head>
-<body class="bg-gray-900 text-gray-100 min-h-screen p-4 md:p-8">
-    <div class="max-w-4xl mx-auto space-y-8">
+<body class="text-gray-100 min-h-screen antialiased selection:bg-blue-500/30">
+
+    <div class="max-w-5xl mx-auto px-4 py-8 md:py-12 space-y-8">
         
-        <div class="border-b border-gray-800 pb-4">
-            <h1 class="text-2xl md:text-3xl font-bold text-emerald-400">Telegram Pages 视频存储系统</h1>
-            <p class="text-gray-400 text-sm mt-1">纯 Pages 架构，支持无限制大视频 10MB 切片上传与随意快进播放。</p>
-        </div>
-
-        <div class="bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700">
-            <h2 class="text-lg font-semibold mb-4 text-gray-200">视频切片上传 (每片10MB)</h2>
-            <div class="space-y-4">
-                <input type="file" id="videoInput" accept="video/*" class="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-emerald-600 file:text-white hover:file:bg-emerald-700 cursor-pointer" />
-                <button id="uploadBtn" onclick="startUpload()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md transition duration-200">开始分片上传</button>
-                
-                <div id="progressContainer" class="hidden space-y-2">
-                    <div class="w-full bg-gray-700 rounded-full h-4 overflow-hidden">
-                        <div id="progressBar" class="bg-emerald-500 h-full w-0 transition-all duration-300"></div>
-                    </div>
-                    <p id="progressStatus" class="text-sm text-gray-400 text-center">正在准备...</p>
-                </div>
+        <header class="flex flex-col md:flex-row md:items-center md:justify-between border-b border-slate-800 pb-6 gap-4">
+            <div>
+                <h1 class="text-3xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-blue-400 via-indigo-400 to-emerald-400">
+                    TELESTREAM PAGES
+                </h1>
+                <p class="text-slate-400 text-xs mt-1.5 flex items-center gap-2">
+                    <span class="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    基于 Cloudflare Pages & Telegram Distributed Engine 强力驱动
+                </p>
             </div>
-        </div>
-
-        <div class="bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700">
-            <h2 class="text-lg font-semibold mb-4 text-gray-200">视频直链播放</h2>
-            <div class="flex gap-2 mb-4">
-                <input type="text" id="fileUidInput" placeholder="请输入视频文件的 UID..." class="flex-1 bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500" />
-                <button onclick="loadVideo()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 text-sm font-medium rounded-md whitespace-nowrap">加载流媒体</button>
+            <div class="flex gap-3 text-xs text-slate-400">
+                <div class="bg-slate-900/60 border border-slate-800 px-3 py-2 rounded-lg">块大小: <span class="text-blue-400 font-bold">10 MB</span></div>
+                <div class="bg-slate-900/60 border border-slate-800 px-3 py-2 rounded-lg">缓冲引擎: <span class="text-emerald-400 font-bold">HTTP Range</span></div>
             </div>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
             
-            <div class="mb-4 hidden" id="linkContainer">
-                <span class="text-xs text-gray-400 block mb-1">视频外部直链：</span>
-                <div class="flex items-center gap-2 bg-gray-900 p-2 rounded border border-gray-700">
-                    <a id="directLink" href="#" target="_blank" class="text-sm text-cyan-400 break-all underline flex-1"></a>
-                    <button onclick="navigator.clipboard.writeText(document.getElementById('directLink').innerText); alert('复制成功！')" class="text-xs bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded">复制</button>
-                </div>
-            </div>
-
-            <div class="aspect-video bg-black rounded-lg overflow-hidden border border-gray-900 flex items-center justify-center relative">
+            <main class="lg:col-span-2 space-y-6">
                 <div class="bg-slate-900/40 backdrop-blur-xl border border-slate-800/80 rounded-2xl overflow-hidden shadow-2xl group transition-all duration-300 hover:border-slate-700/50">
                     <div class="p-4 bg-slate-900/80 border-b border-slate-800/60 flex items-center justify-between">
                         <span class="text-sm font-semibold text-slate-200 flex items-center gap-2">
@@ -65,18 +57,104 @@
                         </div>
                     </div>
                 </div>
-                <div id="playerPlaceholder" class="text-gray-500 text-sm">暂无加载的视频</div>
-            </div>
+
+                <div class="bg-slate-900/40 backdrop-blur-xl border border-slate-800/80 p-5 rounded-2xl shadow-xl space-y-4">
+                    <h3 class="text-sm font-bold text-slate-300 flex items-center gap-2">
+                        <span class="w-1 h-3.5 bg-blue-500 rounded-full"></span> 载入已有流媒体直链
+                    </h3>
+                    <div class="flex gap-2">
+                        <input type="text" id="fileUidInput" placeholder="输入文件 UID (如 vid_xxxxxx)" class="flex-1 bg-slate-950/60 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 transition-all placeholder:text-slate-600" />
+                        <button onclick="loadVideo()" class="bg-blue-600 hover:bg-blue-500 active:scale-95 text-white px-6 py-3 text-sm font-bold rounded-xl transition duration-200 shadow-lg shadow-blue-600/20">
+                            核心渲染
+                        </button>
+                    </div>
+                    
+                    <div class="hidden space-y-2 animate-fadeIn" id="linkContainer">
+                        <label class="text-xs text-slate-500 block">第三方播放器直链 (支持 PotPlayer / IJKPlayer / VLC / Iframe嵌入):</label>
+                        <div class="flex items-center gap-3 bg-slate-950/80 p-3 rounded-xl border border-slate-800">
+                            <a id="directLink" href="#" target="_blank" class="text-xs text-cyan-400 break-all underline flex-1 hover:text-cyan-300"></a>
+                            <button onclick="navigator.clipboard.writeText(document.getElementById('directLink').innerText); alert('直链已成功复制至剪贴板！')" class="text-xs bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg border border-slate-700 transition">复制</button>
+                        </div>
+                    </div>
+                </div>
+            </main>
+
+            <aside class="space-y-6">
+                <div class="bg-slate-900/40 backdrop-blur-xl border border-slate-800/80 p-6 rounded-2xl shadow-xl space-y-6">
+                    <div>
+                        <h2 class="text-lg font-bold text-slate-200">极速分片上传</h2>
+                        <p class="text-xs text-slate-500 mt-1">智能多线程算法，杜绝中途丢包</p>
+                    </div>
+
+                    <div class="relative group border-2 border-dashed border-slate-800 hover:border-blue-500/50 rounded-xl p-6 transition-all bg-slate-950/20 text-center cursor-pointer">
+                        <input type="file" id="videoInput" accept="video/*" class="absolute inset-0 opacity-0 cursor-pointer z-10" />
+                        <div class="space-y-2">
+                            <div class="mx-auto w-12 h-12 text-slate-600 group-hover:text-blue-400 transition-colors">
+                                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 16v-8m0 8l-4-4m4 4l4-4m5 4v3a2 2 0 01-2 2H7a2 2 0 01-2-2v-3a2 2 0 012-2h10a2 2 0 012 2z"></path></svg>
+                            </div>
+                            <p class="text-xs text-slate-400 font-medium group-hover:text-slate-200 transition-colors">点击或将视频 file 拖拽至此处</p>
+                            <p class="text-[10px] text-slate-600">支持 MP4, MKV, MOV 等大视频格式</p>
+                        </div>
+                    </div>
+
+                    <button id="uploadBtn" onclick="startUpload()" class="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:scale-[0.98] text-white font-bold py-3 px-4 rounded-xl transition duration-200 shadow-lg shadow-emerald-900/30">
+                        建立切片安全上行
+                    </button>
+                    
+                    <div id="progressContainer" class="hidden space-y-3 bg-slate-950/50 p-4 rounded-xl border border-slate-800/60 animate-pulse">
+                        <div class="flex justify-between text-xs font-medium">
+                            <span class="text-slate-400" id="progressStatus">等待指令...</span>
+                            <span class="text-blue-400" id="progressPercent">0%</span>
+                        </div>
+                        <div class="w-full bg-slate-900 rounded-full h-2 overflow-hidden border border-slate-800">
+                            <div id="progressBar" class="bg-gradient-to-r from-blue-500 to-indigo-500 h-full w-0 transition-all duration-300 ease-out"></div>
+                        </div>
+                    </div>
+                </div>
+            </main>
         </div>
     </div>
 
     <script>
-        const CHUNK_SIZE = 10 * 1024 * 1024; // 10MB
+        const CHUNK_SIZE = 10 * 1024 * 1024; // 严格限制 10MB 分片
 
-        // 替换前端的 startUpload 函数
+        // 🌟 智能加载并嵌入直链播放器逻辑
+        function loadVideo() {
+            const uid = document.getElementById('fileUidInput').value.trim();
+            if (!uid) return alert('请输入合规的分布式存储 UID。');
+
+            // 1. 生成后端直链路由地址
+            const streamUrl = window.location.origin + '/api/stream/' + uid;
+            
+            const placeholder = document.getElementById('playerPlaceholder');
+            const videoIframe = document.getElementById('videoIframe');
+            const linkContainer = document.getElementById('linkContainer');
+            const directLink = document.getElementById('directLink');
+            const titleSpan = document.getElementById('currentVideoTitle');
+
+            // 2. 调度 DOM 显隐过渡
+            placeholder.classList.add('opacity-0', 'pointer-events-none');
+            videoIframe.classList.remove('hidden');
+            
+            // 3. 将 iframe 指向直链地址（后端会为其自动化吐出带 Plyr 渲染的纯净页面）
+            videoIframe.src = streamUrl;
+
+            // 4. 组装底部辅助快捷复制属性
+            if (linkContainer) {
+                linkContainer.classList.remove('hidden');
+                directLink.href = streamUrl;
+                directLink.innerText = streamUrl;
+            }
+            
+            if (titleSpan.innerText === "暂无播放任务") {
+                titleSpan.innerText = "正在通过独立沙盒流式解析: " + uid;
+            }
+        }
+
+        // 高并发防丢包断点补传上传逻辑
         async function startUpload() {
             const fileInput = document.getElementById('videoInput');
-            if (!fileInput.files.length) return alert('请先选择视频文件！');
+            if (!fileInput.files.length) return alert('核心拦截：请先置入本地视频资产！');
 
             const file = fileInput.files[0];
             const fileUid = 'vid_' + Math.random().toString(36).substring(2, 15);
@@ -85,25 +163,18 @@
             const pContainer = document.getElementById('progressContainer');
             const pBar = document.getElementById('progressBar');
             const pStatus = document.getElementById('progressStatus');
+            const pPercent = document.getElementById('progressPercent');
             
             pContainer.classList.remove('hidden');
             document.getElementById('uploadBtn').disabled = true;
 
-            // 🌟 核心：初始化一个分片状态账本，全部标记为 false（未完成）
             const statusMap = new Array(totalChunks).fill(false);
+            const chunksQueue = Array.from({length: totalChunks}, (_, i) => i);
+            const CONCURRENCY = 3; // 3线程并发，稳健防 TG 限流
 
-            // 将待上传的任务索引填入队列
-            const chunksQueue = [];
-            for (let i = 0; i < totalChunks; i++) {
-                chunksQueue.push(i);
-            }
-
-            const CONCURRENCY = 3; // 保持 3 个并发，稳扎稳打，避免频繁触发 TG 限流
-
-            // 每一个并发执行的独立工人们
             async function uploadWorker() {
                 while (chunksQueue.length > 0) {
-                    const chunkIndex = chunksQueue.shift(); // 抓取一个分片任务
+                    const chunkIndex = chunksQueue.shift(); 
                     if (chunkIndex === undefined) break;
 
                     const start = chunkIndex * CHUNK_SIZE;
@@ -119,100 +190,58 @@
                     formData.append('chunk', chunk);
 
                     let success = false;
-                    let retries = 5; // 🌟 提高容错：单个分片网络失败允许重试 5 次
+                    let retries = 5; 
 
                     while (!success && retries > 0) {
                         try {
                             const response = await fetch('/api/upload', { method: 'POST', body: formData });
+                            if (!response.ok) throw new Error('网络吞吐故障');
                             
-                            if (!response.ok) throw new Error('服务器响应异常');
                             const resData = await response.json();
-                            
                             if (resData.success) {
                                 success = true;
-                                statusMap[chunkIndex] = true; // 在账本上严格打勾
+                                statusMap[chunkIndex] = true; // 严格在状态快照上记账
                                 
-                                // 🌟 计算账本里真正打勾的总数
                                 const completedCount = statusMap.filter(Boolean).length;
+                                const percent = Math.round((completedCount / totalChunks) * 100);
                                 
-                                // ❌ 修改前：
-                                // pStatus.innerText = `正在传输分片... 成功率 (${completedCount}/${totalChunks})`;
-                                
-                                //  修改后（显示具体的完成分片数/总分片数）：
-                                pStatus.innerText = `正在传输分片: 第 ${completedCount} / ${totalChunks} 片 (${Math.round((completedCount / totalChunks) * 100)}%)`;
-                                
-                                const percentComplete = Math.round((completedCount / totalChunks) * 100);
-                                pBar.style.width = percentComplete + '%';
+                                // 动态显示切片总数和真实进度百分比
+                                pStatus.innerText = `传输中: ${completedCount} / ${totalChunks} 块`;
+                                pPercent.innerText = `${percent}%`;
+                                pBar.style.width = percent + '%';
+                            } else {
+                                throw new Error('业务中断');
                             }
                         } catch (err) {
                             retries--;
-                            console.warn(`分片 \${chunkIndex} 上传出错，正在进行重试... 剩余重试次数: \${retries}`);
-                            // 逐渐增加等待时间（指数退避避开 TG 频控）
-                            await new Promise(res => setTimeout(res, (5 - retries) * 2000));
+                            await new Promise(res => setTimeout(res, (5 - retries) * 2000)); // 指数避让
                         }
                     }
 
-                    // 如果重试了 5 次依然失败，把这个分片重新塞回队列尾部，等一会再传
+                    // 重试次数耗尽，重新掷回队列尾部启动终极补传
                     if (!success) {
-                        console.error(`分片 \${chunkIndex} 彻底失败，重新排队进行补传！`);
                         chunksQueue.push(chunkIndex);
-                        await new Promise(res => setTimeout(res, 5000)); // 歇 5 秒再战
+                        await new Promise(res => setTimeout(res, 5000));
                     }
                 }
             }
 
-            // 启动线程池
-            const workers = [];
-            for (let i = 0; i < Math.min(CONCURRENCY, totalChunks); i++) {
-                workers.push(uploadWorker());
-            }
-
-            // 等待一轮大循环结束
+            // 并发执行线程池组装
+            const workers = Array.from({length: Math.min(CONCURRENCY, totalChunks)}, () => uploadWorker());
             await Promise.all(workers);
 
-            // 🌟 双重保障：最后关头，对账本进行全扫描，防止任何漏网之鱼
+            // 最终环比扫描
             const finalCheck = statusMap.every(status => status === true);
 
             if (finalCheck) {
-                pStatus.innerHTML = `🎉 100% 完整上传成功! UID: <strong class="text-white select-all">\${fileUid}</strong>`;
+                pStatus.innerHTML = `<span class="text-emerald-400 font-bold">🎉 100% 校验通过!</span>`;
+                pPercent.innerText = '100%';
                 document.getElementById('fileUidInput').value = fileUid;
+                document.getElementById('currentVideoTitle').innerText = file.name;
             } else {
-                pStatus.innerHTML = `<span class="text-red-400 font-bold">❌ 警告：有分片永久性丢失，请尝试重新上传。</span>`;
+                pStatus.innerHTML = `<span class="text-red-400 font-bold">❌ 极少数片区永久丢失</span>`;
             }
-            
             document.getElementById('uploadBtn').disabled = false;
-        }
-
-        function loadVideo() {
-            const uid = document.getElementById('fileUidInput').value.trim();
-            if (!uid) return alert('请输入合规的分布式存储 UID。');
-
-            // 1. 拼接得到你的无边框美化直链地址
-            const streamUrl = window.location.origin + '/api/stream/' + uid;
-            
-            const placeholder = document.getElementById('playerPlaceholder');
-            const videoIframe = document.getElementById('videoIframe');
-            const linkContainer = document.getElementById('linkContainer');
-            const directLink = document.getElementById('directLink');
-            const titleSpan = document.getElementById('currentVideoTitle');
-
-            // 2. 隐藏占位符，显示 iframe
-            placeholder.classList.add('opacity-0', 'pointer-events-none');
-            videoIframe.classList.remove('hidden');
-            
-            // 3. 🌟 将 iframe 的 src 指向直链，让它在内部自动完成美化与渲染
-            videoIframe.src = streamUrl;
-
-            // 4. 渲染下方辅助面板属性
-            if (linkContainer) {
-                linkContainer.classList.remove('hidden');
-                directLink.href = streamUrl;
-                directLink.innerText = streamUrl;
-            }
-            
-            if (titleSpan.innerText === "暂无播放任务") {
-                titleSpan.innerText = "正在通过独立沙盒流式解析: " + uid;
-            }
         }
     </script>
 </body>
