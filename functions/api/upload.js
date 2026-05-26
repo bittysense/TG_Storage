@@ -18,7 +18,7 @@ export async function onRequestPost(context) {
     tgFormData.append('chat_id', TELEGRAM_CHAT_ID); // 👈 记得换成你自己的公开频道或私聊ID
 
     // 2. 扔给 TG 换取 file_id
-    const tgRes = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendVideo`, {
+    const tgRes = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument`, {
       method: 'POST',
       body: tgFormData
     });
@@ -29,7 +29,7 @@ export async function onRequestPost(context) {
     }
 
     // 3. 🌟 核心优化：直接把 file_id 吐给前端，不碰 KV，0 额度消耗！
-    const fileId = tgData.result.video.file_id;
+    const fileId = tgData.result.document.file_id;
     return new Response(JSON.stringify({ success: true, fileId: fileId }), {
       headers: { 'Content-Type': 'application/json' }
     });
