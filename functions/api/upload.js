@@ -1,29 +1,22 @@
 export async function onRequestPost(context) {
+  const TELEGRAM_BOT_TOKEN = context.env.TELEGRAM_BOT_TOKEN;
+  if (!TELEGRAM_BOT_TOKEN) return new Response(JSON.stringify({ success: false, error: '缺少配置' }), { status: 500 });
+
   try {
-    // 从环境变量中安全读取 TG 参数
-    const TELEGRAM_BOT_TOKEN = context.env.TELEGRAM_BOT_TOKEN;
-    const TELEGRAM_CHAT_ID = context.env.TELEGRAM_CHAT_ID;
-    const kv = context.env.TG_STORAGE_KV;
-
-    // 检查参数是否存在
-    if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
-      return new Response('缺少 Telegram 环境变量配置', { status: 500 });
-    }
-    if (!kv) return new Response('未绑定 KV 命名空间', { status: 500 });
-
     const formData = await context.request.formData();
-    const fileUid = formData.get('uid');
-    const chunkIndex = parseInt(formData.get('chunkIndex'));
-    const totalChunks = parseInt(formData.get('totalChunks'));
-    const fileName = formData.get('fileName');
-    const fileSize = parseInt(formData.get('fileSize'));
-    const chunkFile = formData.get('chunk');
+    const chunk = formData.get('chunk');
+    const fileName = formData.get('fileName') || 'video.mp4';
 
-    // 1. 转发分片到 Telegram
+    if (!chunk) return new Response(JSON.stringify({ success: false, error: '未接收到分片二进制数据' }), { status: 400 });
+
+    // 1. 将分片封装，准备空投给 Telegram 服务器
     const tgFormData = new FormData();
-    tgFormData.append('chat_id', TELEGRAM_CHAT_ID);
-    tgFormData.append('video', chunkFile, `${fileName}.part${chunkIndex}`);
+    // 使用 Blob 确保 Telegram 正确识别为文档流，防止大文件被压缩
+    const fileBlob = new Blob([chunk], { type: 'application/octet-stream' });
+    tgFormData.append('document', fileBlob, fileName);
+    tgFormData.append('chat_id', '@你的频道或你的ChatID'); // 👈 记得换成你自己的公开频道或私聊ID
 
+    // 2. 扔给 TG 换取 file_id
     const tgRes = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendVideo`, {
       method: 'POST',
       body: tgFormData
@@ -31,24 +24,16 @@ export async function onRequestPost(context) {
 
     const tgData = await tgRes.json();
     if (!tgData.ok) {
-      return new Response(JSON.stringify({ error: 'TG上传失败', details: tgData }), { status: 500 });
+      return new Response(JSON.stringify({ success: false, error: 'Telegram 拒绝接收分片', detail: tgData }), { status: 500 });
     }
 
-    const tgFileId = tgData.result.video.file_id;
-
-    // 2. 写入 KV 账本
-    const metaKey = `file:${fileUid}`;
-    let meta = await kv.get(metaKey, { type: 'json' });
-    if (!meta) {
-      meta = { name: fileName, size: fileSize, totalChunks: totalChunks, chunks: [] };
-    }
-    meta.chunks[chunkIndex] = tgFileId;
-    await kv.put(metaKey, JSON.stringify(meta));
-
-    return new Response(JSON.stringify({ success: true, chunkIndex }), {
+    // 3. 🌟 核心优化：直接把 file_id 吐给前端，不碰 KV，0 额度消耗！
+    const fileId = tgData.result.video.file_id;
+    return new Response(JSON.stringify({ success: true, fileId: fileId }), {
       headers: { 'Content-Type': 'application/json' }
     });
+
   } catch (err) {
-    return new Response(JSON.stringify({ error: err.message }), { status: 500 });
+    return new Response(JSON.stringify({ success: false, error: err.message }), { status: 500 });
   }
 }

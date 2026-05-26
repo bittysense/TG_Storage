@@ -157,12 +157,13 @@
             }
         }
 
-        // 高并发防丢包断点补传上传逻辑
+        // 🌟 革命性重构：前端收集型高并发上传算法
         async function startUpload() {
             const fileInput = document.getElementById('videoInput');
             if (!fileInput.files.length) return alert('核心拦截：请先置入本地视频资产！');
 
             const file = fileInput.files[0];
+            // 随机生成唯一的分布式存储 UID
             const fileUid = 'vid_' + Math.random().toString(36).substring(2, 15);
             const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
             
@@ -174,9 +175,10 @@
             pContainer.classList.remove('hidden');
             document.getElementById('uploadBtn').disabled = true;
 
-            const statusMap = new Array(totalChunks).fill(false);
+            // 🌟 核心改进：在前端建立一个容器，专门用来严格按顺序存放每个分片换回来的 fileId
+            const finalChunksLedger = new Array(totalChunks).fill(null);
             const chunksQueue = Array.from({length: totalChunks}, (_, i) => i);
-            const CONCURRENCY = 3; // 3线程并发，稳健防 TG 限流
+            const CONCURRENCY = 3; // 保持 3 线程稳定并发
 
             async function uploadWorker() {
                 while (chunksQueue.length > 0) {
@@ -188,43 +190,42 @@
                     const chunk = file.slice(start, end);
 
                     const formData = new FormData();
-                    formData.append('uid', fileUid);
-                    formData.append('chunkIndex', chunkIndex);
-                    formData.append('totalChunks', totalChunks);
-                    formData.append('fileName', file.name);
-                    formData.append('fileSize', file.size);
                     formData.append('chunk', chunk);
+                    formData.append('fileName', `${file.name}.part${chunkIndex}`);
 
                     let success = false;
                     let retries = 5; 
 
                     while (!success && retries > 0) {
                         try {
+                            // 请求中转路由，不消耗 KV 额度
                             const response = await fetch('/api/upload', { method: 'POST', body: formData });
                             if (!response.ok) throw new Error('网络吞吐故障');
                             
                             const resData = await response.json();
-                            if (resData.success) {
+                            if (resData.success && resData.fileId) {
                                 success = true;
-                                statusMap[chunkIndex] = true; // 严格在状态快照上记账
                                 
-                                const completedCount = statusMap.filter(Boolean).length;
+                                // 🌟 极其重要：将 Telegram 返回的 fileId 写入对应的槽位中，保证文件顺序绝不错乱
+                                finalChunksLedger[chunkIndex] = resData.fileId; 
+                                
+                                // 刷新前端进度条记账
+                                const completedCount = finalChunksLedger.filter(Boolean).length;
                                 const percent = Math.round((completedCount / totalChunks) * 100);
                                 
-                                // 动态显示切片总数和真实进度百分比
-                                pStatus.innerText = `传输中: ${completedCount} / ${totalChunks} 块`;
+                                pStatus.innerText = `分片传输中: ${completedCount} / ${totalChunks} 块`;
                                 pPercent.innerText = `${percent}%`;
                                 pBar.style.width = percent + '%';
                             } else {
-                                throw new Error('业务中断');
+                                throw new Error(resData.error || '业务中断');
                             }
                         } catch (err) {
                             retries--;
-                            await new Promise(res => setTimeout(res, (5 - retries) * 2000)); // 指数避让
+                            await new Promise(res => setTimeout(res, (5 - retries) * 2000)); // 指数退避重试
                         }
                     }
 
-                    // 重试次数耗尽，重新掷回队列尾部启动终极补传
+                    // 如果连续重试 5 次都彻底失败，重新掷回队列尾部
                     if (!success) {
                         chunksQueue.push(chunkIndex);
                         await new Promise(res => setTimeout(res, 5000));
@@ -232,89 +233,45 @@
                 }
             }
 
-            // 并发执行线程池组装
+            // 启动线程池并发上行
             const workers = Array.from({length: Math.min(CONCURRENCY, totalChunks)}, () => uploadWorker());
             await Promise.all(workers);
 
-            // 最终环比扫描
-            const finalCheck = statusMap.every(status => status === true);
+            // 环比扫描：确保前端手里的 fileId 没有任何一个漏掉的
+            const isAllUploaded = finalChunksLedger.every(id => id !== null);
 
-            if (finalCheck) {
-                pStatus.innerHTML = `<span class="text-emerald-400 font-bold">🎉 100% 校验通过!</span>`;
-                pPercent.innerText = '100%';
-                document.getElementById('fileUidInput').value = fileUid;
-                document.getElementById('currentVideoTitle').innerText = file.name;
+            if (isAllUploaded) {
+                pStatus.innerText = `分片收拢完毕，正在向云端申请结算...`;
+                
+                try {
+                    // 🌟 终极收尾：向后端 /api/save 发送总账，进行唯一一次 KV 写入
+                    const saveResponse = await fetch('/api/save', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            uid: fileUid,
+                            name: file.name,
+                            size: file.size,
+                            chunks: finalChunksLedger
+                        })
+                    });
+
+                    const saveResult = await saveResponse.json();
+                    if (saveResult.success) {
+                        pStatus.innerHTML = `<span class="text-emerald-400 font-bold">🎉 100% 结算入库成功!</span>`;
+                        pPercent.innerText = '100%';
+                        document.getElementById('fileUidInput').value = fileUid;
+                        document.getElementById('currentVideoTitle').innerText = file.name;
+                    } else {
+                        throw new Error(saveResult.error);
+                    }
+                } catch (saveErr) {
+                    pStatus.innerHTML = `<span class="text-red-400 font-bold">❌ 云端结算失败: ${saveErr.message}</span>`;
+                }
             } else {
-                pStatus.innerHTML = `<span class="text-red-400 font-bold">❌ 极少数片区永久丢失</span>`;
+                pStatus.innerHTML = `<span class="text-red-400 font-bold">❌ 部分文件分片在上行链路永久丢失</span>`;
             }
             document.getElementById('uploadBtn').disabled = false;
-        }
-
-        // 🌟 核心改进：直接从云端 list.js 接口拉取并打包导出全量 JSON 文件
-        async function exportUidLog() {
-            const exportBtn = document.querySelector('button[onclick="exportUidLog()"]');
-            const originalText = exportBtn.innerHTML;
-            
-            try {
-                // 1. 按钮置灰并展示加载动画
-                exportBtn.disabled = true;
-                exportBtn.innerHTML = `
-                    <svg class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                    同步云端...
-                `;
-
-                // 2. 异步请求后端的视频列表数据
-                const response = await fetch('/api/list');
-                if (!response.ok) throw new Error('云端账本读取失败');
-                
-                const cloudData = await response.json(); 
-                
-                if (!cloudData || cloudData.length === 0) {
-                    alert("云端数据库当前空空如也，无任何资产可供导出！");
-                    return;
-                }
-
-                // 3. 🌟 核心处理：为每一条数据动态追加完整直链地址，方便其他系统直接读取调用
-                const processedData = cloudData.map(item => {
-                    return {
-                        uid: item.uid,
-                        name: item.name || item.fileName || '未命名视频资产',
-                        size_bytes: item.size || 0,
-                        size_mb: item.size ? parseFloat((item.size / 1024 / 1024).toFixed(2)) : 0,
-                        stream_url: `${window.location.origin}/api/stream/${item.uid}`, // 独立无边框内嵌播放直链
-                        raw_stream_url: `${window.location.origin}/api/stream/${item.uid}?stream=true`, // 供给第三方软件的裸流
-                        uploaded_at: item.time || item.uploadedAt || new Date().toLocaleString()
-                    };
-                });
-
-                // 4. 将 JavaScript 对象序列化为漂亮的、带缩进的标准 JSON 字符串
-                const jsonString = JSON.stringify(processedData, null, 4);
-
-                // 5. 创建 application/json 类型的 Blob 触发浏览器下载
-                const blob = new Blob([jsonString], { type: "application/json;charset=utf-8" });
-                const downloadUrl = URL.createObjectURL(blob);
-                const aLink = document.createElement("a");
-                
-                // 自动命名格式：TG_Cloud_Backup_20260525.json
-                const dateStr = new Date().toISOString().slice(0,10).replace(/-/g,"");
-                aLink.href = downloadUrl;
-                aLink.download = `TG_Cloud_Backup_${dateStr}.json`;
-                
-                document.body.appendChild(aLink);
-                aLink.click();
-                
-                // 6. 垃圾回收与内存释放
-                document.body.removeChild(aLink);
-                URL.revokeObjectURL(downloadUrl);
-
-            } catch (err) {
-                console.error(err);
-                alert(`JSON 导出失败: ${err.message}`);
-            } finally {
-                // 还原按钮状态
-                exportBtn.disabled = false;
-                exportBtn.innerHTML = originalText;
-            }
         }
     </script>
 </body>
