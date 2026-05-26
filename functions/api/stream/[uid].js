@@ -98,8 +98,6 @@ function getBeautifulPlayerHTML(videoName, rawStreamUrl) {
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>${videoName}</title>
-        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/plyr@3.7.8/dist/plyr.css" />
-        <script src="https://cdn.jsdelivr.net/npm/plyr@3.7.8/dist/plyr.polyfilled.min.js"></script>
         <style>
             /* 彻底移除所有浏览器默认边距与滚动条 */
             html, body {
