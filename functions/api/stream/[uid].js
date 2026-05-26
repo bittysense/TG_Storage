@@ -144,7 +144,7 @@ function getBeautifulPlayerHTML(videoName, rawStreamUrl) {
                     tooltips: { controls: true, seek: true },
                     clickToPlay: true
                 });
-                player.play().catch(() => {});
+                // player.play().catch(() => {});
             });
         </script>
     </body>
