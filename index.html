@@ -81,9 +81,15 @@
 
             <aside class="space-y-6">
                 <div class="bg-slate-900/40 backdrop-blur-xl border border-slate-800/80 p-6 rounded-2xl shadow-xl space-y-6">
-                    <div>
-                        <h2 class="text-lg font-bold text-slate-200">极速分片上传</h2>
-                        <p class="text-xs text-slate-500 mt-1">智能多线程算法，杜绝中途丢包</p>
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <h2 class="text-lg font-bold text-slate-200">极速分片上传</h2>
+                            <p class="text-xs text-slate-500 mt-1">智能多线程算法，杜绝中途丢包</p>
+                        </div>
+                        <button onclick="exportUidLog()" title="导出云端全量 JSON 账本" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-2.5 py-1.5 border border-slate-700 rounded-lg flex items-center gap-1 transition active:scale-95">
+                            <svg class="w-3.5 h-3.5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                            导出 JSON
+                        </button>
                     </div>
 
                     <div class="relative group border-2 border-dashed border-slate-800 hover:border-blue-500/50 rounded-xl p-6 transition-all bg-slate-950/20 text-center cursor-pointer">
@@ -242,6 +248,73 @@
                 pStatus.innerHTML = `<span class="text-red-400 font-bold">❌ 极少数片区永久丢失</span>`;
             }
             document.getElementById('uploadBtn').disabled = false;
+        }
+
+        // 🌟 核心改进：直接从云端 list.js 接口拉取并打包导出全量 JSON 文件
+        async function exportUidLog() {
+            const exportBtn = document.querySelector('button[onclick="exportUidLog()"]');
+            const originalText = exportBtn.innerHTML;
+            
+            try {
+                // 1. 按钮置灰并展示加载动画
+                exportBtn.disabled = true;
+                exportBtn.innerHTML = `
+                    <svg class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    同步云端...
+                `;
+
+                // 2. 异步请求后端的视频列表数据
+                const response = await fetch('/api/list');
+                if (!response.ok) throw new Error('云端账本读取失败');
+                
+                const cloudData = await response.json(); 
+                
+                if (!cloudData || cloudData.length === 0) {
+                    alert("云端数据库当前空空如也，无任何资产可供导出！");
+                    return;
+                }
+
+                // 3. 🌟 核心处理：为每一条数据动态追加完整直链地址，方便其他系统直接读取调用
+                const processedData = cloudData.map(item => {
+                    return {
+                        uid: item.uid,
+                        name: item.name || item.fileName || '未命名视频资产',
+                        size_bytes: item.size || 0,
+                        size_mb: item.size ? parseFloat((item.size / 1024 / 1024).toFixed(2)) : 0,
+                        stream_url: `${window.location.origin}/api/stream/${item.uid}`, // 独立无边框内嵌播放直链
+                        raw_stream_url: `${window.location.origin}/api/stream/${item.uid}?stream=true`, // 供给第三方软件的裸流
+                        uploaded_at: item.time || item.uploadedAt || new Date().toLocaleString()
+                    };
+                });
+
+                // 4. 将 JavaScript 对象序列化为漂亮的、带缩进的标准 JSON 字符串
+                const jsonString = JSON.stringify(processedData, null, 4);
+
+                // 5. 创建 application/json 类型的 Blob 触发浏览器下载
+                const blob = new Blob([jsonString], { type: "application/json;charset=utf-8" });
+                const downloadUrl = URL.createObjectURL(blob);
+                const aLink = document.createElement("a");
+                
+                // 自动命名格式：TG_Cloud_Backup_20260525.json
+                const dateStr = new Date().toISOString().slice(0,10).replace(/-/g,"");
+                aLink.href = downloadUrl;
+                aLink.download = `TG_Cloud_Backup_${dateStr}.json`;
+                
+                document.body.appendChild(aLink);
+                aLink.click();
+                
+                // 6. 垃圾回收与内存释放
+                document.body.removeChild(aLink);
+                URL.revokeObjectURL(downloadUrl);
+
+            } catch (err) {
+                console.error(err);
+                alert(`JSON 导出失败: ${err.message}`);
+            } finally {
+                // 还原按钮状态
+                exportBtn.disabled = false;
+                exportBtn.innerHTML = originalText;
+            }
         }
     </script>
 </body>
