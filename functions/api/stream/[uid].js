@@ -1,4 +1,4 @@
-const CHUNK_SIZE = 10 * 1024 * 1024; // 10MB 历史兼容分片物理标尺
+const CHUNK_SIZE = 10 * 1024 * 1024; // 10MB 分片
 
 export async function onRequestGet(context) {
   const TELEGRAM_BOT_TOKEN = context.env.TELEGRAM_BOT_TOKEN;
@@ -12,27 +12,32 @@ export async function onRequestGet(context) {
   const acceptHeader = context.request.headers.get('accept') || '';
 
   // ======================================================================
-  // 🌟 核心优化 1：Cache API 拦截 KV
+  // 🌟 核心优化 1：利用 Cloudflare Cache API 拦截对 KV 元数据的频繁读取
   // ======================================================================
   const cache = caches.default;
+  // 建立一个专门针对这个 UID 元数据的虚拟缓存 URL (过期时间设为 7 天)
   const metaCacheUrl = new URL(`${url.origin}/api/internal/meta/${uid}`);
   let cacheResponse = await cache.match(metaCacheUrl);
   
   let meta;
   if (cacheResponse) {
+    // 🎉 缓存命中！完全不消耗 KV 额度
     meta = await cacheResponse.json();
   } else {
+    // ❌ 缓存未命中，极为罕见地读取一次 KV 账本
     meta = await kv.get(`file:${uid}`, { type: 'json' });
     if (!meta) return new Response('视频不存在', { status: 404 });
 
+    // 将账本打包成 Response，并写入 Cloudflare 边缘缓存，强制缓存 7 天
     const responseToCache = new Response(JSON.stringify(meta), {
       headers: { 'Cache-Control': 'public, max-age=604800' }
     });
+    // 使用 keepUntil 确保异步写入成功而不阻塞当前视频播放
     context.waitUntil(cache.put(metaCacheUrl, responseToCache));
   }
 
   // ======================================================================
-  // 🌟 核心优化 2：智能来源判别（将修改后的无黑边弹性模板返回给浏览器/Obsidian）
+  // 2. 智能来源判别（如果是浏览器直接打开/Iframe 嵌入，吐出纯净播放器页面）
   // ======================================================================
   if (acceptHeader.includes('text/html') && !url.searchParams.has('stream')) {
     const rawStreamUrl = url.origin + url.pathname + '?stream=true';
@@ -42,7 +47,7 @@ export async function onRequestGet(context) {
   }
 
   // ======================================================================
-  // 3. 高性能原生态流媒体中转管道 (保持原样不动)
+  // 3. 高性能原生态流媒体中转管道 (无论用户怎么拖动进度条，都不再消耗 KV 额度)
   // ======================================================================
   const totalSize = meta.size;
   const rangeHeader = context.request.headers.get('range');
@@ -68,6 +73,7 @@ export async function onRequestGet(context) {
         const fileId = meta.chunks[i];
         if (!fileId) continue;
 
+        // 向 TG 换取真实下载直链
         const pathRes = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getFile?file_id=${fileId}`);
         const pathData = await pathRes.json();
         if (!pathData.ok) break;
@@ -99,7 +105,7 @@ export async function onRequestGet(context) {
   return new Response(readable, {
     status: rangeHeader ? 206 : 200,
     headers: {
-      'video/mp4': 'video/mp4',
+      'Content-Type': 'video/mp4',
       'Accept-Ranges': 'bytes',
       'Content-Range': `bytes ${start}-${end}/${totalSize}`,
       'Content-Length': String(end - start + 1),
@@ -108,7 +114,7 @@ export async function onRequestGet(context) {
   });
 }
 
-// 🌟 重新校准：纯净独立播放器 HTML 弹性模板
+// 纯净独立播放器 HTML 模板
 function getBeautifulPlayerHTML(videoName, rawStreamUrl) {
   return `
     <!DOCTYPE html>
@@ -120,39 +126,17 @@ function getBeautifulPlayerHTML(videoName, rawStreamUrl) {
         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/plyr@3.7.8/dist/plyr.css" />
         <script src="https://cdn.jsdelivr.net/npm/plyr@3.7.8/dist/plyr.polyfilled.min.js"></script>
         <style>
-            /* 💥 核心改动：放开全部高度限制，允许沙盒被视频等比例向下撑开 */
-            html, body { 
-                margin: 0; 
-                padding: 0; 
-                width: 100%; 
-                height: auto; 
-                background-color: transparent; 
-                overflow: hidden; 
-            }
-            
-            /* 让 Plyr 骨架打破默认的 16:9 硬编码硬塑性 */
-            .plyr { 
-                width: 100% !important; 
-                height: auto !important; 
-                background-color: transparent !important; 
-            }
-            
-            /* 锁定视频实体自适应尺寸 */
-            video { 
-                display: block;
-                width: 100% !important; 
-                height: auto !important; 
-                object-fit: contain !important; 
-            }
+            html, body { margin: 0; padding: 0; width: 100%; height: 100%; background-color: #000000; overflow: hidden; }
+            .plyr { width: 100% !important; height: 100% !important; background-color: #000000; }
+            .plyr__video-wrapper { height: 100% !important; }
+            video { object-fit: contain !important; }
             :root { --plyr-color-main: #3b82f6; }
         </style>
     </head>
     <body>
-        <div id="player-container">
-            <video id="player" playsinline controls preload="metadata">
-                <source src="${rawStreamUrl}" type="video/mp4">
-            </video>
-        </div>
+        <video id="player" playsinline controls preload="metadata">
+            <source src="${rawStreamUrl}" type="video/mp4">
+        </video>
         <script>
             document.addEventListener('DOMContentLoaded', () => {
                 const player = new Plyr('#player', {
@@ -160,31 +144,7 @@ function getBeautifulPlayerHTML(videoName, rawStreamUrl) {
                     tooltips: { controls: true, seek: true },
                     clickToPlay: true
                 });
-
                 player.play().catch(() => {});
-
-                // 🌟 核心魔法：尺寸监听，主动反向去顶开外部 Obsidian 的 iframe 外壳
-                const container = document.getElementById('player-container');
-                
-                function sendHeightToParent() {
-                    // 获取 Plyr 加载渲染完成后的精准物理高度
-                    const currentHeight = container.offsetHeight;
-                    if (currentHeight > 0) {
-                        // 如果在同域（或者直接支持元素控制），直接暴力穿透改外层样式
-                        if (window.frameElement) {
-                            window.frameElement.style.height = currentHeight + 'px';
-                        } else {
-                            // 跨域沙盒兼容方案
-                            window.parent.postMessage({ type: 'resize-video-iframe', height: currentHeight }, '*');
-                        }
-                    }
-                }
-
-                // 视频拿到长宽数据的瞬间、以及窗口缩放时，立刻计算尺寸
-                player.on('ready', () => {
-                    setTimeout(sendHeightToParent, 200); // 延时 200ms 等待 Plyr UI 渲染完毕
-                });
-                window.addEventListener('resize', sendHeightToParent);
             });
         </script>
     </body>
