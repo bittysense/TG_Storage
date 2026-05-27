@@ -250,7 +250,7 @@ function getMusicCardHTML(audioName, rawStreamUrl, url) {
           titleEl.innerHTML = cleanQuery;
         }
 
-        // 2. 发起双阶封面搜索链条
+        // 2. 第一步：搜索拿到歌曲 ID
         const searchUrl = \`https://music.163.com/api/search/get/web?s=\${encodeURIComponent(cleanQuery)}&type=1&limit=1\`;
         
         fetch(searchUrl)
@@ -258,36 +258,38 @@ function getMusicCardHTML(audioName, rawStreamUrl, url) {
           .then(data => {
             if (data && data.result && data.result.songs && data.result.songs.length > 0) {
               const songId = data.result.songs[0].id;
+              // 第二步：通过单曲详情接口精准匹配
               const detailUrl = \`https://music.163.com/api/song/detail/?id=\${songId}&ids=[\${songId}]\`;
               return fetch(detailUrl);
             }
-            throw new Error('未在第一层搜索匹配到歌曲ID');
+            throw new Error('第一层搜索未命中');
           })
           .then(res => res.json())
           .then(detailData => {
+            // 🌟 核心修正：直接对接你发来的真实报文结构。最外层就是 {"songs": [...]}
             if (detailData && detailData.songs && detailData.songs.length > 0) {
               const songDetail = detailData.songs[0];
               
-              // 🌟 核心修正：做多重属性降级兜底，完美适应你所获取到的这一套 JSON 结构
               if (songDetail.album) {
+                // 完美命中你测试结果中的 picUrl 与 blurPicUrl 字段
                 const rawPicUrl = songDetail.album.picUrl || songDetail.album.blurPicUrl;
                 
                 if (rawPicUrl) {
                   const imgElement = document.getElementById('netease-cover');
-                  // 强制将不安全的 http 换成标准 https 并使用轻量 param 参数拦截
+                  // 强制转换为安全的 https 链接，并追加高效裁切参数
                   const realCoverUrl = rawPicUrl.replace("http://", "https://") + "?param=130y130";
                   
                   imgElement.src = realCoverUrl;
                   imgElement.onload = () => {
-                    imgElement.classList.add('loaded');
-                    document.getElementById('fallback-icon').style.display = 'none';
+                    imgElement.classList.add('loaded'); // 丝滑淡入
+                    document.getElementById('fallback-icon').style.display = 'none'; // 隐藏默认音符
                   };
                 }
               }
             }
           })
           .catch(err => {
-            console.log('网易云封面深度链路未命中，继续使用磨砂音符默认兜底。', err);
+            console.log('网易云封面深度链路未命中，已启用黑胶默认兜底。', err);
           });
       });
     </script>
