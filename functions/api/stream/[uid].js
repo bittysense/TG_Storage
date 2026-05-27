@@ -12,7 +12,7 @@ export async function onRequestGet(context) {
   const acceptHeader = context.request.headers.get('accept') || '';
 
   // ======================================================================
-  // 🌟 核心优化 1：利用 Cloudflare Cache API 拦截对 KV 元数据的频繁读取
+  // 1. 利用 Cloudflare Cache API 拦截对 KV 元数据的频繁读取
   // ======================================================================
   const cache = caches.default;
   const metaCacheUrl = new URL(`${url.origin}/api/internal/meta/${uid}`);
@@ -36,13 +36,10 @@ export async function onRequestGet(context) {
   // ======================================================================
   if (acceptHeader.includes('text/html') && !url.searchParams.has('stream')) { 
     const rawStreamUrl = url.origin + url.pathname + '?stream=true';
-
-    // 1. 获取请求链接中的 type 参数
     const playType = url.searchParams.get('type'); 
 
-    // 2. 判断：如果用户指定了 type=audio
     if (playType === 'audio') {
-        // 🌟 修正点：将准确的 rawStreamUrl 传入，让音乐播放器能获取到真正的二进制流
+        // 🌟 核心修正点 1：前面必须加上 await，确保 HTML 被完全渲染后再吐给浏览器
         const html = await getMusicCardHTML(meta.name, rawStreamUrl, url);
         return new Response(html, {
           headers: {
@@ -50,7 +47,6 @@ export async function onRequestGet(context) {
           }
         });
     } else {
-        // 默认依然渲染成你之前的 16:9 纯净大视频播放器
         return new Response(getBeautifulPlayerHTML(meta.name, rawStreamUrl), {
             headers: { 'Content-Type': 'text/html;charset=UTF-8' }
         });
@@ -161,38 +157,43 @@ function getBeautifulPlayerHTML(videoName, rawStreamUrl) {
   `;
 }
 
-// 🌟 修正升级后的音频卡片模板
-// 🌟 重点 1：前面加上了 async
+// 🌟 修正升级后的音频卡片模板（后端直接秒出图）
 async function getMusicCardHTML(audioName, rawStreamUrl, url) {
-  
-  // --- 🎯 后端直接抓取封面逻辑开始 ---
   let finalCoverUrl = ""; 
   let hasCover = false;
 
+  // 统一模拟标准桌面浏览器的 UA 头，防止被网易云防火墙直接打回
+  const customHeaders = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+  };
+
   try {
-    // 1. 深度清洗歌名
     let cleanQuery = audioName.replace(/\.[^/.]+$/, "").trim();
     if (cleanQuery.includes('-')) {
-      cleanQuery = cleanQuery.split('-')[0].trim(); // 遇到 "歌名 - 歌手" 优先切出纯歌名
+      cleanQuery = cleanQuery.split('-')[0].trim();
     }
 
-    // 2. 后端发起第一阶搜索（不受任何跨域限制）
-    const searchRes = await fetch(`https://music.163.com/api/search/get/web?s=${encodeURIComponent(cleanQuery)}&type=1&limit=1`);
+    // 1. 搜索歌曲 ID
+    const searchRes = await fetch(`https://music.163.com/api/search/get/web?s=${encodeURIComponent(cleanQuery)}&type=1&limit=1`, {
+      headers: customHeaders
+    });
     const searchData = await searchRes.json();
 
     if (searchData?.result?.songs?.length > 0) {
       const songId = searchData.result.songs[0].id;
 
-      // 3. 后端发起第二阶详情锁定
-      const detailRes = await fetch(`https://music.163.com/api/song/detail/?id=${songId}&ids=[${songId}]`);
+      // 2. 精准匹配歌曲详情封面
+      const detailRes = await fetch(`https://music.163.com/api/song/detail/?id=${songId}&ids=[${songId}]`, {
+        headers: customHeaders
+      });
       const detailData = await detailRes.json();
 
+      // 🌟 核心修正点 2：完全按你提供的真实报文结构进行精准解析
       if (detailData?.songs?.length > 0) {
         const songDetail = detailData.songs[0];
         const rawPicUrl = songDetail.album?.picUrl || songDetail.album?.blurPicUrl;
         
         if (rawPicUrl) {
-          // 4. 成功拿到直链，强制换成 https 并进行 cdn 130px 裁切优化
           finalCoverUrl = rawPicUrl.replace("http://", "https://") + "?param=130y130";
           hasCover = true;
         }
@@ -201,9 +202,7 @@ async function getMusicCardHTML(audioName, rawStreamUrl, url) {
   } catch (e) {
     console.error("后端抓取网易云封面失败:", e);
   }
-  // --- 🎯 后端直接抓取封面逻辑结束 ---
 
-  // 渲染输出 HTML，此时封面图片和样式在后端就已经注定了
   return `
   <!DOCTYPE html>
   <html>
@@ -217,11 +216,8 @@ async function getMusicCardHTML(audioName, rawStreamUrl, url) {
       .music-card { width: 100%; max-width: 580px; height: 130px; background: rgba(35, 35, 35, 0.92); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-radius: 12px; display: flex; align-items: center; box-shadow: 0 8px 32px rgba(0,0,0,0.35); overflow: hidden; border: 1px solid rgba(255,255,255,0.08); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; box-sizing: border-box; }
       
       .cover-area { width: 130px; height: 130px; position: relative; flex-shrink: 0; background: linear-gradient(135deg, #252525 0%, #121212 100%); display: flex; align-items: center; justify-content: center; }
-      
-      /* 如果后端判定有封面，图片默认显示(opacity:1)；没封面就透明隐藏 */
       .cover-img { width: 100%; height: 100%; object-fit: cover; filter: brightness(0.7); opacity: ${hasCover ? 1 : 0}; position: absolute; top: 0; left: 0; }
       
-      /* 如果后端判定有封面，默认的灰色音符直接隐藏 */
       .default-note { position: absolute; width: 34px; height: 34px; fill: rgba(255,255,255,0.22); transition: all 0.3s ease; display: ${hasCover ? 'none' : 'block'}; }
       .playing .default-note { fill: rgba(59, 130, 246, 0.5); transform: rotate(360deg); transition: all 12px linear infinite; }
       
@@ -275,7 +271,6 @@ async function getMusicCardHTML(audioName, rawStreamUrl, url) {
         const rawTitle = "${audioName}";
         const cleanQuery = rawTitle.replace(/\\.[^/.]+$/, "").trim();
         
-        // 纯前端现在只需要各司其职，专门负责文字多长就怎么滚动的逻辑即可
         const container = document.getElementById('t-container');
         const titleEl = document.getElementById('display-title');
         if (titleEl.offsetWidth > container.offsetWidth) {
