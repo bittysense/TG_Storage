@@ -239,7 +239,7 @@ function getMusicCardHTML(audioName, rawStreamUrl, url) {
         const rawTitle = "${audioName}";
         const cleanQuery = rawTitle.replace(/\\.[^/.]+$/, "").trim();
         
-        // 1. 智能文字空间计算（超长跑马灯）
+        // 1. 滚动文字动态处理
         const container = document.getElementById('t-container');
         const titleEl = document.getElementById('display-title');
         if (titleEl.offsetWidth > container.offsetWidth) {
@@ -250,42 +250,44 @@ function getMusicCardHTML(audioName, rawStreamUrl, url) {
           titleEl.innerHTML = cleanQuery;
         }
 
-        // 🌟 2. 双阶流式异步检索：歌曲名 ➔ 找歌曲 ID ➔ 锁定官方详情大图
+        // 2. 发起双阶封面搜索链条
         const searchUrl = \`https://music.163.com/api/search/get/web?s=\${encodeURIComponent(cleanQuery)}&type=1&limit=1\`;
         
         fetch(searchUrl)
           .then(res => res.json())
           .then(data => {
             if (data && data.result && data.result.songs && data.result.songs.length > 0) {
-              // 👑 阶梯一：精准定位到这首歌的歌曲 ID
               const songId = data.result.songs[0].id;
-              
-              // 👑 阶梯二：利用歌曲 ID 直接探入网易云官方单曲元数据详情接口
               const detailUrl = \`https://music.163.com/api/song/detail/?id=\${songId}&ids=[\${songId}]\`;
               return fetch(detailUrl);
             }
-            throw new Error('Search did not yield any song ID');
+            throw new Error('未在第一层搜索匹配到歌曲ID');
           })
           .then(res => res.json())
           .then(detailData => {
             if (detailData && detailData.songs && detailData.songs.length > 0) {
               const songDetail = detailData.songs[0];
-              // 锁定歌曲详情下最稳定的全尺寸原版专辑图封面
-              if (songDetail.album && songDetail.album.picUrl) {
-                const imgElement = document.getElementById('netease-cover');
-                // 压缩请求为 https，并加入网易 CDN 快速裁剪规格（130px）减少加载阻碍
-                const realCoverUrl = songDetail.album.picUrl.replace("http://", "https://") + "?param=130y130";
+              
+              // 🌟 核心修正：做多重属性降级兜底，完美适应你所获取到的这一套 JSON 结构
+              if (songDetail.album) {
+                const rawPicUrl = songDetail.album.picUrl || songDetail.album.blurPicUrl;
                 
-                imgElement.src = realCoverUrl;
-                imgElement.onload = () => {
-                  imgElement.classList.add('loaded'); // 丝滑显示
-                  document.getElementById('fallback-icon').style.display = 'none';
-                };
+                if (rawPicUrl) {
+                  const imgElement = document.getElementById('netease-cover');
+                  // 强制将不安全的 http 换成标准 https 并使用轻量 param 参数拦截
+                  const realCoverUrl = rawPicUrl.replace("http://", "https://") + "?param=130y130";
+                  
+                  imgElement.src = realCoverUrl;
+                  imgElement.onload = () => {
+                    imgElement.classList.add('loaded');
+                    document.getElementById('fallback-icon').style.display = 'none';
+                  };
+                }
               }
             }
           })
           .catch(err => {
-            console.log('网易云深度封面链条未击中，已启用黑胶渐变默认兜底。', err);
+            console.log('网易云封面深度链路未命中，继续使用磨砂音符默认兜底。', err);
           });
       });
     </script>
