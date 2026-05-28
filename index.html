@@ -200,7 +200,7 @@
 
             const finalChunksLedger = new Array(totalChunks).fill(null);
             const chunksQueue = Array.from({length: totalChunks}, (_, i) => i);
-            const CONCURRENCY = 5; 
+            const CONCURRENCY = 3; 
 
             async function uploadWorker() {
                 while (chunksQueue.length > 0) {
