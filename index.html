@@ -93,8 +93,8 @@
                     </div>
 
                     <div class="relative group border-2 border-dashed border-slate-800 hover:border-blue-500/50 rounded-xl p-6 transition-all bg-slate-950/20 text-center cursor-pointer">
-                        <input type="file" id="videoInput" accept="video/*" class="absolute inset-0 opacity-0 cursor-pointer z-10" />
-                        <div class="space-y-2">
+                        <input type="file" id="videoInput" accept="video/*" onchange="handleFileSelect()" class="absolute inset-0 opacity-0 cursor-pointer z-10" />
+                        <div class="space-y-2" id="dropzoneContent">
                             <div class="mx-auto w-12 h-12 text-slate-600 group-hover:text-blue-400 transition-colors">
                                 <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 16v-8m0 8l-4-4m4 4l4-4m5 4v3a2 2 0 01-2 2H7a2 2 0 01-2-2v-3a2 2 0 012-2h10a2 2 0 012 2z"></path></svg>
                             </div>
@@ -107,7 +107,7 @@
                         建立切片安全上行
                     </button>
                     
-                    <div id="progressContainer" class="hidden space-y-3 bg-slate-950/50 p-4 rounded-xl border border-slate-800/60 animate-pulse">
+                    <div id="progressContainer" class="hidden space-y-3 bg-slate-950/50 p-4 rounded-xl border border-slate-800/60">
                         <div class="flex justify-between text-xs font-medium">
                             <span class="text-slate-400" id="progressStatus">等待指令...</span>
                             <span class="text-blue-400" id="progressPercent">0%</span>
@@ -124,12 +124,38 @@
     <script>
         const CHUNK_SIZE = 10 * 1024 * 1024; // 严格限制 10MB 分片
 
+        // 🌟 新增：处理选择文件后的 UI 响应逻辑
+        function handleFileSelect() {
+            const fileInput = document.getElementById('videoInput');
+            const dropzone = document.getElementById('dropzoneContent');
+            const pContainer = document.getElementById('progressContainer');
+            
+            // 1. 清除上一次上传留下的结算状态提示与进度条
+            pContainer.classList.add('hidden');
+            document.getElementById('progressBar').style.width = '0%';
+            document.getElementById('progressPercent').innerText = '0%';
+            document.getElementById('progressStatus').innerText = '等待指令...';
+
+            if (fileInput.files.length > 0) {
+                const file = fileInput.files[0];
+                const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
+                
+                // 2. 动态替换上传域内容，精美展示文件名与体积
+                dropzone.innerHTML = `
+                    <div class="mx-auto w-12 h-12 text-emerald-400 transition-colors">
+                        <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                    </div>
+                    <p class="text-xs font-bold text-emerald-400 break-all px-2">${file.name}</p>
+                    <p class="text-[10px] text-slate-400">当前资产规格: <span class="text-blue-400 font-bold">${sizeMB} MB</span></p>
+                `;
+            }
+        }
+
         // 🌟 智能加载并嵌入直链播放器逻辑
         function loadVideo() {
             const uid = document.getElementById('fileUidInput').value.trim();
             if (!uid) return alert('请输入合规的分布式存储 UID。');
 
-            // 1. 生成后端直链路由地址
             const streamUrl = window.location.origin + '/api/stream/' + uid;
             
             const placeholder = document.getElementById('playerPlaceholder');
@@ -138,32 +164,27 @@
             const directLink = document.getElementById('directLink');
             const titleSpan = document.getElementById('currentVideoTitle');
 
-            // 2. 调度 DOM 显隐过渡
             placeholder.classList.add('opacity-0', 'pointer-events-none');
             videoIframe.classList.remove('hidden');
-            
-            // 3. 将 iframe 指向直链地址（后端会为其自动化吐出带 Plyr 渲染的纯净页面）
             videoIframe.src = streamUrl;
 
-            // 4. 组装底部辅助快捷复制属性
             if (linkContainer) {
                 linkContainer.classList.remove('hidden');
                 directLink.href = streamUrl;
                 directLink.innerText = streamUrl;
             }
             
-            if (titleSpan.innerText === "暂无播放任务") {
+            if (titleSpan.innerText === "暂无播放任务" || titleSpan.innerText.startsWith("正在通过独立沙盒流式解析")) {
                 titleSpan.innerText = "正在通过独立沙盒流式解析: " + uid;
             }
         }
 
-        // 🌟 革命性重构：前端收集型高并发上传算法
+        // 🌟 高并发分片上传算法
         async function startUpload() {
             const fileInput = document.getElementById('videoInput');
             if (!fileInput.files.length) return alert('核心拦截：请先置入本地视频资产！');
 
             const file = fileInput.files[0];
-            // 随机生成唯一的分布式存储 UID
             const fileUid = 'vid_' + Math.random().toString(36).substring(2, 15);
             const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
             
@@ -172,13 +193,14 @@
             const pStatus = document.getElementById('progressStatus');
             const pPercent = document.getElementById('progressPercent');
             
+            // 重新开始上传时，确保移除闪烁挂起动效，展现精确数值状态
             pContainer.classList.remove('hidden');
+            pContainer.classList.add('animate-none'); 
             document.getElementById('uploadBtn').disabled = true;
 
-            // 🌟 核心改进：在前端建立一个容器，专门用来严格按顺序存放每个分片换回来的 fileId
             const finalChunksLedger = new Array(totalChunks).fill(null);
             const chunksQueue = Array.from({length: totalChunks}, (_, i) => i);
-            const CONCURRENCY = 3; // 保持 3 线程稳定并发
+            const CONCURRENCY = 3; 
 
             async function uploadWorker() {
                 while (chunksQueue.length > 0) {
@@ -198,18 +220,14 @@
 
                     while (!success && retries > 0) {
                         try {
-                            // 请求中转路由，不消耗 KV 额度
                             const response = await fetch('/api/upload', { method: 'POST', body: formData });
                             if (!response.ok) throw new Error('网络吞吐故障');
                             
                             const resData = await response.json();
                             if (resData.success && resData.fileId) {
                                 success = true;
-                                
-                                // 🌟 极其重要：将 Telegram 返回的 fileId 写入对应的槽位中，保证文件顺序绝不错乱
                                 finalChunksLedger[chunkIndex] = resData.fileId; 
                                 
-                                // 刷新前端进度条记账
                                 const completedCount = finalChunksLedger.filter(Boolean).length;
                                 const percent = Math.round((completedCount / totalChunks) * 100);
                                 
@@ -221,11 +239,10 @@
                             }
                         } catch (err) {
                             retries--;
-                            await new Promise(res => setTimeout(res, (5 - retries) * 2000)); // 指数退避重试
+                            await new Promise(res => setTimeout(res, (5 - retries) * 2000)); 
                         }
                     }
 
-                    // 如果连续重试 5 次都彻底失败，重新掷回队列尾部
                     if (!success) {
                         chunksQueue.push(chunkIndex);
                         await new Promise(res => setTimeout(res, 5000));
@@ -233,18 +250,15 @@
                 }
             }
 
-            // 启动线程池并发上行
             const workers = Array.from({length: Math.min(CONCURRENCY, totalChunks)}, () => uploadWorker());
             await Promise.all(workers);
 
-            // 环比扫描：确保前端手里的 fileId 没有任何一个漏掉的
             const isAllUploaded = finalChunksLedger.every(id => id !== null);
 
             if (isAllUploaded) {
                 pStatus.innerText = `分片收拢完毕，正在向云端申请结算...`;
                 
                 try {
-                    // 🌟 终极收尾：向后端 /api/save 发送总账，进行唯一一次 KV 写入
                     const saveResponse = await fetch('/api/save', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -258,6 +272,7 @@
 
                     const saveResult = await saveResponse.json();
                     if (saveResult.success) {
+                        // 完美入库
                         pStatus.innerHTML = `<span class="text-emerald-400 font-bold">🎉 100% 结算入库成功!</span>`;
                         pPercent.innerText = '100%';
                         document.getElementById('fileUidInput').value = fileUid;
@@ -274,7 +289,7 @@
             document.getElementById('uploadBtn').disabled = false;
         }
 
-        // 🌟 终极防错版：全自动跨卷全量导出，并智能修复老视频字段
+        // 跨卷全量导出逻辑
         async function exportUidLog() {
             const exportBtn = document.querySelector('button[onclick="exportUidLog()"]');
             if (!exportBtn) return;
@@ -284,24 +299,19 @@
                 exportBtn.disabled = true;
                 exportBtn.innerHTML = `<svg class="w-3.5 h-3.5 animate-spin inline mr-1" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> 正在跨卷同步...`;
 
-                // 1. 请求第一页列表，拿到无指针分卷总册数
                 const firstRes = await fetch('/api/list?page=1');
                 if (!firstRes.ok) throw new Error('读取云端索引失败');
                 
-                // 兼容处理：支持后端直接返回数组（老版方案一）或返回带分页的对象
                 const firstResult = await firstRes.json();
                 let allMergedVideos = [];
                 let totalLedgers = 1;
 
                 if (Array.isArray(firstResult)) {
-                    // 说明后端使用的是【方案一：后端全自动合并版】
                     allMergedVideos = firstResult;
                 } else {
-                    // 说明后端使用的是【分卷带 page 属性版】
                     allMergedVideos = firstResult.data || [];
                     totalLedgers = firstResult.totalPages || 1;
 
-                    // 🚀 如果总册数大于 1，并发轮询把剩下几册全部抽干
                     if (totalLedgers > 1) {
                         const fetchPromises = [];
                         for (let p = 2; p <= totalLedgers; p++) {
@@ -321,24 +331,19 @@
                     return;
                 }
 
-                // 2. 🌟 智能清洗与标准化数据（核心防错修改点）
                 const processedData = allMergedVideos.map((item, index) => {
-                    // 🚨 【双重保险】如果老数据连总账本里都没塞进 uid，则尝试从外部其他可能的地方兜底，或者直接标记异常，防止抛错卡死
                     const safeUid = item.uid || item.id || `unknown_vid_${index}`;
-                    
                     return {
                         uid: safeUid,
                         name: item.name || '未命名视频或历史资产',
                         size_bytes: item.size || 0,
                         size_mb: item.size ? parseFloat((item.size / 1024 / 1024).toFixed(2)) : 0,
-                        // 拼接标准的流媒体在线播放地址与原始串流地址
                         stream_url: `${window.location.origin}/api/stream/${safeUid}`,
                         raw_stream_url: `${window.location.origin}/api/stream/${safeUid}?stream=true`,
                         uploaded_at: item.time || new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
                     };
                 });
 
-                // 3. 转化为标准的 JSON 文本文件并触发浏览器下载
                 const blob = new Blob([JSON.stringify(processedData, null, 4)], { type: "application/json;charset=utf-8" });
                 const downloadUrl = URL.createObjectURL(blob);
                 const aLink = document.createElement("a");
@@ -349,7 +354,6 @@
                 document.body.appendChild(aLink);
                 aLink.click();
                 
-                // 清理现场
                 document.body.removeChild(aLink);
                 URL.revokeObjectURL(downloadUrl);
 
