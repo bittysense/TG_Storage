@@ -178,7 +178,7 @@
             // 🌟 核心改进：在前端建立一个容器，专门用来严格按顺序存放每个分片换回来的 fileId
             const finalChunksLedger = new Array(totalChunks).fill(null);
             const chunksQueue = Array.from({length: totalChunks}, (_, i) => i);
-            const CONCURRENCY = 3; // 保持 3 线程稳定并发
+            const CONCURRENCY = 5; // 保持 5 线程稳定并发
 
             async function uploadWorker() {
                 while (chunksQueue.length > 0) {
