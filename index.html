@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TG 视频流媒体控制台</title>
+    <title>TG 视频流媒体控制台 (串行批量版)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://npm.elemecdn.com/lxgw-wenkai-webfont@1.1.0/lxgwwenkai-regular.css" />
     
@@ -83,8 +83,8 @@
                 <div class="bg-slate-900/40 backdrop-blur-xl border border-slate-800/80 p-6 rounded-2xl shadow-xl space-y-6">
                     <div class="flex justify-between items-start">
                         <div>
-                            <h2 class="text-lg font-bold text-slate-200">极速分片上传</h2>
-                            <p class="text-xs text-slate-500 mt-1">智能多线程算法，杜绝中途丢包</p>
+                            <h2 class="text-lg font-bold text-slate-200">批量队列上传</h2>
+                            <p class="text-xs text-slate-500 mt-1">单视频依次前行，多线程分片并发</p>
                         </div>
                         <button onclick="exportUidLog()" title="导出云端全量 JSON 账本" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-2.5 py-1.5 border border-slate-700 rounded-lg flex items-center gap-1 transition active:scale-95">
                             <svg class="w-3.5 h-3.5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
@@ -93,61 +93,75 @@
                     </div>
 
                     <div class="relative group border-2 border-dashed border-slate-800 hover:border-blue-500/50 rounded-xl p-6 transition-all bg-slate-950/20 text-center cursor-pointer">
-                        <input type="file" id="videoInput" accept="video/*" onchange="handleFileSelect()" class="absolute inset-0 opacity-0 cursor-pointer z-10" />
+                        <input type="file" id="videoInput" accept="video/*" multiple onchange="handleFileSelect()" class="absolute inset-0 opacity-0 cursor-pointer z-10" />
                         <div class="space-y-2" id="dropzoneContent">
                             <div class="mx-auto w-12 h-12 text-slate-600 group-hover:text-blue-400 transition-colors">
                                 <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 16v-8m0 8l-4-4m4 4l4-4m5 4v3a2 2 0 01-2 2H7a2 2 0 01-2-2v-3a2 2 0 012-2h10a2 2 0 012 2z"></path></svg>
                             </div>
-                            <p class="text-xs text-slate-400 font-medium group-hover:text-slate-200 transition-colors">点击或将视频 file 拖拽至此处</p>
+                            <p class="text-xs text-slate-400 font-medium group-hover:text-slate-200 transition-colors">点击或拖拽多个视频至此处</p>
                             <p class="text-[10px] text-slate-600">支持 MP4, MKV, MOV 等大视频格式</p>
                         </div>
                     </div>
 
-                    <button id="uploadBtn" onclick="startUpload()" class="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:scale-[0.98] text-white font-bold py-3 px-4 rounded-xl transition duration-200 shadow-lg shadow-emerald-900/30">
-                        建立切片安全上行
+                    <button id="uploadBtn" onclick="startBatchUpload()" class="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:scale-[0.98] text-white font-bold py-3 px-4 rounded-xl transition duration-200 shadow-lg shadow-emerald-900/30">
+                        建立批量切片安全上行
                     </button>
                     
-                    <div id="progressContainer" class="hidden space-y-3 bg-slate-950/50 p-4 rounded-xl border border-slate-800/60">
-                        <div class="flex justify-between text-xs font-medium">
-                            <span class="text-slate-400" id="progressStatus">等待指令...</span>
-                            <span class="text-blue-400" id="progressPercent">0%</span>
+                    <div id="batchProgressContainer" class="space-y-3 max-h-96 overflow-y-auto pr-1">
                         </div>
-                        <div class="w-full bg-slate-900 rounded-full h-2 overflow-hidden border border-slate-800">
-                            <div id="progressBar" class="bg-gradient-to-r from-blue-500 to-indigo-500 h-full w-0 transition-all duration-300 ease-out"></div>
-                        </div>
-                    </div>
                 </div>
-            </main>
+            </aside>
         </div>
     </div>
 
     <script>
         const CHUNK_SIZE = 10 * 1024 * 1024; // 严格限制 10MB 分片
+        const CONCURRENCY = 3;               // 单个视频的分片上传线程并发数
 
-        // 🌟 新增：处理选择文件后的 UI 响应逻辑
+        // 🌟 选择文件后的 UI 动态排队看板初始化
         function handleFileSelect() {
             const fileInput = document.getElementById('videoInput');
             const dropzone = document.getElementById('dropzoneContent');
-            const pContainer = document.getElementById('progressContainer');
+            const batchContainer = document.getElementById('batchProgressContainer');
             
-            // 1. 清除上一次上传留下的结算状态提示与进度条
-            pContainer.classList.add('hidden');
-            document.getElementById('progressBar').style.width = '0%';
-            document.getElementById('progressPercent').innerText = '0%';
-            document.getElementById('progressStatus').innerText = '等待指令...';
+            batchContainer.innerHTML = ''; // 清空历史状态
 
             if (fileInput.files.length > 0) {
-                const file = fileInput.files[0];
-                const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
+                const files = fileInput.files;
+                let totalSizeRaw = 0;
+                for(let i=0; i<files.length; i++) { totalSizeRaw += files[i].size; }
+                const totalSizeMB = (totalSizeRaw / (1024 * 1024)).toFixed(2);
                 
-                // 2. 动态替换上传域内容，精美展示文件名与体积
                 dropzone.innerHTML = `
                     <div class="mx-auto w-12 h-12 text-emerald-400 transition-colors">
                         <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
                     </div>
-                    <p class="text-xs font-bold text-emerald-400 break-all px-2">${file.name}</p>
-                    <p class="text-[10px] text-slate-400">当前资产规格: <span class="text-blue-400 font-bold">${sizeMB} MB</span></p>
+                    <p class="text-xs font-bold text-emerald-400 break-all px-2">已就绪 ${files.length} 个视频资产</p>
+                    <p class="text-[10px] text-slate-400">总体积: <span class="text-blue-400 font-bold">${totalSizeMB} MB</span></p>
                 `;
+
+                // 为每个文件挂载等待 UI 面板
+                for (let i = 0; i < files.length; i++) {
+                    const file = files[i];
+                    const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
+                    
+                    const taskHtml = `
+                        <div id="task_${i}" class="space-y-2 bg-slate-950/50 p-4 rounded-xl border border-slate-800/60 text-left transition-all">
+                            <div class="flex justify-between items-start gap-2">
+                                <span class="text-xs font-semibold text-slate-300 truncate block max-w-[75%]" title="${file.name}">${file.name}</span>
+                                <span class="text-[10px] text-slate-500 shrink-0">${sizeMB} MB</span>
+                            </div>
+                            <div class="flex justify-between text-[10px]">
+                                <span class="text-slate-500 status-text">排队等待中...</span>
+                                <span class="text-slate-500 percent-text">0%</span>
+                            </div>
+                            <div class="w-full bg-slate-900 rounded-full h-1.5 overflow-hidden border border-slate-800">
+                                <div class="progress-bar bg-gradient-to-r from-blue-500 to-indigo-500 h-full w-0 transition-all duration-300 ease-out"></div>
+                            </div>
+                        </div>
+                    `;
+                    batchContainer.insertAdjacentHTML('beforeend', taskHtml);
+                }
             }
         }
 
@@ -174,35 +188,49 @@
                 directLink.innerText = streamUrl;
             }
             
-            if (titleSpan.innerText === "暂无播放任务" || titleSpan.innerText.startsWith("正在通过独立沙盒流式解析")) {
-                titleSpan.innerText = "正在通过独立沙盒流式解析: " + uid;
-            }
+            titleSpan.innerText = "正在通过独立沙盒流式解析: " + uid;
         }
 
-        // 🌟 高并发分片上传算法
-        async function startUpload() {
+        // 🌟 核心修改点：严格的串行化批处理控制器（并行视频数恒等于 1）
+        async function startBatchUpload() {
             const fileInput = document.getElementById('videoInput');
             if (!fileInput.files.length) return alert('核心拦截：请先置入本地视频资产！');
 
-            const file = fileInput.files[0];
+            document.getElementById('uploadBtn').disabled = true;
+            const files = Array.from(fileInput.files);
+            
+            // 使用经典的 for...of 显式 await，确保上一个文件 save 接口响应后，才开启下一个文件
+            for (let i = 0; i < files.length; i++) {
+                await uploadSingleFile(files[i], i);
+            }
+            
+            document.getElementById('uploadBtn').disabled = false;
+            alert('🎉 批量队列全部文件已依次传输并结算完毕！');
+        }
+
+        // 🌟 单个文件的分片并发上行逻辑（沙盒隔离，UI 节点精准绑定）
+        async function uploadSingleFile(file, index) {
             const fileUid = 'vid_' + Math.random().toString(36).substring(2, 15);
             const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
             
-            const pContainer = document.getElementById('progressContainer');
-            const pBar = document.getElementById('progressBar');
-            const pStatus = document.getElementById('progressStatus');
-            const pPercent = document.getElementById('progressPercent');
-            
-            // 重新开始上传时，确保移除闪烁挂起动效，展现精确数值状态
-            pContainer.classList.remove('hidden');
-            pContainer.classList.add('animate-none'); 
-            document.getElementById('uploadBtn').disabled = true;
+            // 抓取当前文件的独立控制 DOM
+            const taskContainer = document.getElementById(`task_${index}`);
+            const pStatus = taskContainer.querySelector('.status-text');
+            const pPercent = taskContainer.querySelector('.percent-text');
+            const pBar = taskContainer.querySelector('.progress-bar');
+
+            // 激活当前任务的视觉样式
+            taskContainer.classList.remove('border-slate-800/60');
+            taskContainer.classList.add('border-blue-500/40', 'bg-slate-900/60');
+            pStatus.className = "text-blue-400 status-text font-medium";
+            pPercent.className = "text-blue-400 percent-text font-medium";
+            pStatus.innerText = '准备切片上行...';
 
             const finalChunksLedger = new Array(totalChunks).fill(null);
             const chunksQueue = Array.from({length: totalChunks}, (_, i) => i);
-            const CONCURRENCY = 3; 
 
-            async function uploadWorker() {
+            // 分片并发执行 Worker
+            async function chunkWorker() {
                 while (chunksQueue.length > 0) {
                     const chunkIndex = chunksQueue.shift(); 
                     if (chunkIndex === undefined) break;
@@ -231,7 +259,7 @@
                                 const completedCount = finalChunksLedger.filter(Boolean).length;
                                 const percent = Math.round((completedCount / totalChunks) * 100);
                                 
-                                pStatus.innerText = `分片传输中: ${completedCount} / ${totalChunks} 块`;
+                                pStatus.innerText = `传输分片中: ${completedCount} / ${totalChunks}`;
                                 pPercent.innerText = `${percent}%`;
                                 pBar.style.width = percent + '%';
                             } else {
@@ -250,13 +278,14 @@
                 }
             }
 
-            const workers = Array.from({length: Math.min(CONCURRENCY, totalChunks)}, () => uploadWorker());
+            // 在当前文件内部，建立多线程切片高并发上行
+            const workers = Array.from({length: Math.min(CONCURRENCY, totalChunks)}, () => chunkWorker());
             await Promise.all(workers);
 
             const isAllUploaded = finalChunksLedger.every(id => id !== null);
 
             if (isAllUploaded) {
-                pStatus.innerText = `分片收拢完毕，正在向云端申请结算...`;
+                pStatus.innerText = `分片收拢，向云端申请结算...`;
                 
                 try {
                     const saveResponse = await fetch('/api/save', {
@@ -272,24 +301,31 @@
 
                     const saveResult = await saveResponse.json();
                     if (saveResult.success) {
-                        // 完美入库
-                        pStatus.innerHTML = `<span class="text-emerald-400 font-bold">🎉 100% 结算入库成功!</span>`;
+                        // 结算成功：更新当前节点 UI
+                        pStatus.innerHTML = `<span class="text-emerald-400 font-bold">🎉 结算成功</span>`;
                         pPercent.innerText = '100%';
+                        pPercent.className = 'text-emerald-400 font-bold percent-text';
+                        pBar.className = "progress-bar bg-gradient-to-r from-emerald-500 to-teal-500 h-full w-full";
+                        
+                        // 弱化当前卡片边框高亮
+                        taskContainer.classList.remove('border-blue-500/40');
+                        taskContainer.classList.add('border-emerald-500/30');
+
+                        // 联动机制：自动填入最后一个成功入库的文件方便单片测试
                         document.getElementById('fileUidInput').value = fileUid;
                         document.getElementById('currentVideoTitle').innerText = file.name;
                     } else {
                         throw new Error(saveResult.error);
                     }
                 } catch (saveErr) {
-                    pStatus.innerHTML = `<span class="text-red-400 font-bold">❌ 云端结算失败: ${saveErr.message}</span>`;
+                    pStatus.innerHTML = `<span class="text-red-400 font-bold">❌ 结算失败: ${saveErr.message}</span>`;
                 }
             } else {
-                pStatus.innerHTML = `<span class="text-red-400 font-bold">❌ 部分文件分片在上行链路永久丢失</span>`;
+                pStatus.innerHTML = `<span class="text-red-400 font-bold">❌ 分片传输链路崩溃</span>`;
             }
-            document.getElementById('uploadBtn').disabled = false;
         }
 
-        // 跨卷全量导出逻辑
+        // 跨卷全量导出逻辑 (保持原有逻辑)
         async function exportUidLog() {
             const exportBtn = document.querySelector('button[onclick="exportUidLog()"]');
             if (!exportBtn) return;
